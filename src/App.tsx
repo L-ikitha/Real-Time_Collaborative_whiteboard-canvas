@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Canvas from "./components/Canvas";
 import Toolbar from "./components/Toolbar";
 import "./App.css";
@@ -8,8 +8,18 @@ function App() {
   const [brushSize, setBrushSize] = useState(5);
   const [isEraser, setIsEraser] = useState(false);
 
-  const clearCanvas = () => {
-    window.location.reload();
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
+  const clearRef = useRef<() => void>(() => {});
+
+  const handleCanvasReady = (
+    undo: () => void,
+    redo: () => void,
+    clear: () => void
+  ) => {
+    undoRef.current = undo;
+    redoRef.current = redo;
+    clearRef.current = clear;
   };
 
   return (
@@ -23,13 +33,16 @@ function App() {
         onColorChange={setColor}
         onBrushSizeChange={setBrushSize}
         onEraserChange={setIsEraser}
-        onClear={clearCanvas}
+        onUndo={() => undoRef.current()}
+        onRedo={() => redoRef.current()}
+        onClear={() => clearRef.current()}
       />
 
       <Canvas
         color={color}
         brushSize={brushSize}
         isEraser={isEraser}
+        onCanvasReady={handleCanvasReady}
       />
     </div>
   );

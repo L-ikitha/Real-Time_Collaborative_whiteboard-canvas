@@ -5,6 +5,8 @@ interface ToolbarProps {
   onColorChange: (color: string) => void;
   onBrushSizeChange: (size: number) => void;
   onEraserChange: (value: boolean) => void;
+  onUndo: () => void;
+  onRedo: () => void;
   onClear: () => void;
 }
 
@@ -15,6 +17,8 @@ function Toolbar({
   onColorChange,
   onBrushSizeChange,
   onEraserChange,
+  onUndo,
+  onRedo,
   onClear,
 }: ToolbarProps) {
   return (
@@ -25,7 +29,9 @@ function Toolbar({
           type="color"
           value={color}
           disabled={isEraser}
-          onChange={(event) => onColorChange(event.target.value)}
+          onChange={(event) =>
+            onColorChange(event.target.value)
+          }
         />
       </label>
 
@@ -40,6 +46,7 @@ function Toolbar({
             onBrushSizeChange(Number(event.target.value))
           }
         />
+
         <span>{brushSize}px</span>
       </label>
 
@@ -47,7 +54,17 @@ function Toolbar({
         {isEraser ? "Pen" : "Eraser"}
       </button>
 
-      <button onClick={onClear}>Clear</button>
+      <button onClick={onUndo}>
+        Undo
+      </button>
+
+      <button onClick={onRedo}>
+        Redo
+      </button>
+
+      <button onClick={onClear}>
+        Clear
+      </button>
     </div>
   );
 }
