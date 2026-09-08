@@ -1,17 +1,19 @@
 import { useRef, useState } from "react";
 
-function Canvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+interface CanvasProps {
+  color: string;
+  brushSize: number;
+}
 
+function Canvas({ color, brushSize }: CanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
   const startDrawing = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-
     if (!canvas) return;
 
     const context = canvas.getContext("2d");
-
     if (!context) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -29,11 +31,9 @@ function Canvas() {
     if (!isDrawing) return;
 
     const canvas = canvasRef.current;
-
     if (!canvas) return;
 
     const context = canvas.getContext("2d");
-
     if (!context) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -43,8 +43,8 @@ function Canvas() {
       event.clientY - rect.top
     );
 
-    context.strokeStyle = "#000000";
-    context.lineWidth = 5;
+    context.strokeStyle = color;
+    context.lineWidth = brushSize;
     context.lineCap = "round";
     context.lineJoin = "round";
 
