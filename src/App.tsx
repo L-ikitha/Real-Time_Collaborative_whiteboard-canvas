@@ -6,6 +6,7 @@ import "./App.css";
 function App() {
   const [color, setColor] = useState("#000000");
   const [brushSize, setBrushSize] = useState(5);
+  const [isEraser, setIsEraser] = useState(false);
 
   const clearCanvas = () => {
     window.location.reload();
@@ -16,15 +17,20 @@ function App() {
       <h1>Collaborative Whiteboard</h1>
 
       <Toolbar
-      color={color}
-      brushSize={brushSize}
-      onColorChange={setColor}
-      onBrushSizeChange={setBrushSize}
-      onClear={clearCanvas}
-    />
+        color={color}
+        brushSize={brushSize}
+        isEraser={isEraser}
+        onColorChange={setColor}
+        onBrushSizeChange={setBrushSize}
+        onEraserChange={setIsEraser}
+        onClear={clearCanvas}
+      />
 
-    <Canvas color={color} brushSize={brushSize} />
-          
+      <Canvas
+        color={color}
+        brushSize={brushSize}
+        isEraser={isEraser}
+      />
     </div>
   );
 }

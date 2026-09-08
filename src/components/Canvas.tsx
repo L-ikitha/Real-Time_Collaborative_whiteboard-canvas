@@ -3,22 +3,26 @@ import { useRef, useState } from "react";
 interface CanvasProps {
   color: string;
   brushSize: number;
+  isEraser: boolean;
 }
 
-function Canvas({ color, brushSize }: CanvasProps) {
+function Canvas({ color, brushSize, isEraser }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
   const startDrawing = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
+
     if (!canvas) return;
 
     const context = canvas.getContext("2d");
+
     if (!context) return;
 
     const rect = canvas.getBoundingClientRect();
 
     context.beginPath();
+
     context.moveTo(
       event.clientX - rect.left,
       event.clientY - rect.top
@@ -31,9 +35,11 @@ function Canvas({ color, brushSize }: CanvasProps) {
     if (!isDrawing) return;
 
     const canvas = canvasRef.current;
+
     if (!canvas) return;
 
     const context = canvas.getContext("2d");
+
     if (!context) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -43,7 +49,7 @@ function Canvas({ color, brushSize }: CanvasProps) {
       event.clientY - rect.top
     );
 
-    context.strokeStyle = color;
+    context.strokeStyle = isEraser ? "#ffffff" : color;
     context.lineWidth = brushSize;
     context.lineCap = "round";
     context.lineJoin = "round";
