@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Canvas from "./components/Canvas";
 import Toolbar from "./components/Toolbar";
 import "./App.css";
@@ -12,15 +12,59 @@ function App() {
   const redoRef = useRef<() => void>(() => {});
   const clearRef = useRef<() => void>(() => {});
 
-  const handleCanvasReady = (
-    undo: () => void,
-    redo: () => void,
-    clear: () => void
-  ) => {
-    undoRef.current = undo;
-    redoRef.current = redo;
-    clearRef.current = clear;
-  };
+  const handleCanvasReady = useCallback(
+    (
+      undo: () => void,
+      redo: () => void,
+      clear: () => void
+    ) => {
+      undoRef.current = undo;
+      redoRef.current = redo;
+      clearRef.current = clear;
+    },
+    []
+  );
+
+  useEffect(() => {
+    const handleKeyboard = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      if (event.ctrlKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+
+        if (event.shiftKey) {
+          redoRef.current();
+        } else {
+          undoRef.current();
+        }
+
+        return;
+      }
+
+      if (event.ctrlKey && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        redoRef.current();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "e") {
+        setIsEraser((previous) => !previous);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyboard);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyboard);
+    };
+  }, []);
 
   return (
     <div className="app">
@@ -44,6 +88,20 @@ function App() {
         isEraser={isEraser}
         onCanvasReady={handleCanvasReady}
       />
+
+      <div className="shortcuts">
+        <span>
+          Undo: <strong>Ctrl + Z</strong>
+        </span>
+
+        <span>
+          Redo: <strong>Ctrl + Y</strong>
+        </span>
+
+        <span>
+          Eraser: <strong>E</strong>
+        </span>
+      </div>
     </div>
   );
 }
