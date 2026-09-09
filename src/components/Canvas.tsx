@@ -41,6 +41,7 @@ function Canvas({
     );
 
     historyRef.current.push(imageData);
+
     redoHistoryRef.current = [];
   };
 
@@ -119,7 +120,10 @@ function Canvas({
 
     const canvas = canvasRef.current;
 
-    if (canvas && canvas.hasPointerCapture(event.pointerId)) {
+    if (
+      canvas &&
+      canvas.hasPointerCapture(event.pointerId)
+    ) {
       canvas.releasePointerCapture(event.pointerId);
     }
 
@@ -209,7 +213,11 @@ function Canvas({
         onPointerMove={draw}
         onPointerUp={stopDrawing}
         onPointerCancel={stopDrawing}
-        style={{ touchAction: "none" }}
+        onContextMenu={(event) => event.preventDefault()}
+        style={{
+          touchAction: "none",
+          userSelect: "none",
+        }}
       />
     </div>
   );
