@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface CanvasProps {
   color: string;
@@ -59,12 +59,14 @@ function Canvas({
 
     const rect = canvas.getBoundingClientRect();
 
-    context.beginPath();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-    context.moveTo(
-      event.clientX - rect.left,
-      event.clientY - rect.top
-    );
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+
+    context.beginPath();
+    context.moveTo(x, y);
 
     setIsDrawing(true);
   };
@@ -84,10 +86,13 @@ function Canvas({
 
     const rect = canvas.getBoundingClientRect();
 
-    context.lineTo(
-      event.clientX - rect.left,
-      event.clientY - rect.top
-    );
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+
+    context.lineTo(x, y);
 
     context.strokeStyle = isEraser ? "#ffffff" : color;
     context.lineWidth = brushSize;
@@ -172,18 +177,22 @@ function Canvas({
     );
   };
 
-  onCanvasReady(undo, redo, clear);
+  useEffect(() => {
+    onCanvasReady(undo, redo, clear);
+  }, [onCanvasReady]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={1000}
-      height={600}
-      onMouseDown={startDrawing}
-      onMouseMove={draw}
-      onMouseUp={stopDrawing}
-      onMouseLeave={stopDrawing}
-    />
+    <div className="canvas-container">
+      <canvas
+        ref={canvasRef}
+        width={1000}
+        height={600}
+        onMouseDown={startDrawing}
+        onMouseMove={draw}
+        onMouseUp={stopDrawing}
+        onMouseLeave={stopDrawing}
+      />
+    </div>
   );
 }
 
