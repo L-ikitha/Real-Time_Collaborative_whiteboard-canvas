@@ -44,8 +44,28 @@ function Canvas({
     redoHistoryRef.current = [];
   };
 
+  const getCoordinates = (
+    event: React.PointerEvent<HTMLCanvasElement>
+  ) => {
+    const canvas = canvasRef.current;
+
+    if (!canvas) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    return {
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY,
+    };
+  };
+
   const startDrawing = (
-    event: React.MouseEvent<HTMLCanvasElement>
+    event: React.PointerEvent<HTMLCanvasElement>
   ) => {
     const canvas = canvasRef.current;
 
@@ -55,15 +75,11 @@ function Canvas({
 
     if (!context) return;
 
+    canvas.setPointerCapture(event.pointerId);
+
     saveState();
 
-    const rect = canvas.getBoundingClientRect();
-
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-
-    const x = (event.clientX - rect.left) * scaleX;
-    const y = (event.clientY - rect.top) * scaleY;
+    const { x, y } = getCoordinates(event);
 
     context.beginPath();
     context.moveTo(x, y);
@@ -72,7 +88,7 @@ function Canvas({
   };
 
   const draw = (
-    event: React.MouseEvent<HTMLCanvasElement>
+    event: React.PointerEvent<HTMLCanvasElement>
   ) => {
     if (!isDrawing) return;
 
@@ -84,13 +100,7 @@ function Canvas({
 
     if (!context) return;
 
-    const rect = canvas.getBoundingClientRect();
-
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-
-    const x = (event.clientX - rect.left) * scaleX;
-    const y = (event.clientY - rect.top) * scaleY;
+    const { x, y } = getCoordinates(event);
 
     context.lineTo(x, y);
 
@@ -102,8 +112,16 @@ function Canvas({
     context.stroke();
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (
+    event: React.PointerEvent<HTMLCanvasElement>
+  ) => {
     if (!isDrawing) return;
+
+    const canvas = canvasRef.current;
+
+    if (canvas && canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
 
     setIsDrawing(false);
   };
@@ -187,10 +205,11 @@ function Canvas({
         ref={canvasRef}
         width={1000}
         height={600}
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+        style={{ touchAction: "none" }}
       />
     </div>
   );
