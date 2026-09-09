@@ -23,9 +23,11 @@ function Toolbar({
 }: ToolbarProps) {
   return (
     <div className="toolbar">
-      <label>
-        Color:
+      <div className="tool-group">
+        <label htmlFor="color-picker">Color</label>
+
         <input
+          id="color-picker"
           type="color"
           value={color}
           disabled={isEraser}
@@ -33,11 +35,15 @@ function Toolbar({
             onColorChange(event.target.value)
           }
         />
-      </label>
+      </div>
 
-      <label>
-        Brush Size:
+      <div className="tool-group brush-control">
+        <label htmlFor="brush-size">
+          Brush: <strong>{brushSize}px</strong>
+        </label>
+
         <input
+          id="brush-size"
           type="range"
           min="1"
           max="30"
@@ -46,25 +52,39 @@ function Toolbar({
             onBrushSizeChange(Number(event.target.value))
           }
         />
+      </div>
 
-        <span>{brushSize}px</span>
-      </label>
+      <div className="tool-actions">
+        <button
+          type="button"
+          onClick={() => onEraserChange(!isEraser)}
+          className={isEraser ? "active" : ""}
+        >
+          {isEraser ? "Pen" : "Eraser"}
+        </button>
 
-      <button onClick={() => onEraserChange(!isEraser)}>
-        {isEraser ? "Pen" : "Eraser"}
-      </button>
+        <button
+          type="button"
+          onClick={onUndo}
+        >
+          Undo
+        </button>
 
-      <button onClick={onUndo}>
-        Undo
-      </button>
+        <button
+          type="button"
+          onClick={onRedo}
+        >
+          Redo
+        </button>
 
-      <button onClick={onRedo}>
-        Redo
-      </button>
-
-      <button onClick={onClear}>
-        Clear
-      </button>
+        <button
+          type="button"
+          onClick={onClear}
+          className="clear-button"
+        >
+          Clear
+        </button>
+      </div>
     </div>
   );
 }
