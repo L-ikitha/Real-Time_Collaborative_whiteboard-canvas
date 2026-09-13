@@ -23,27 +23,22 @@ function Toolbar({
 }: ToolbarProps) {
   return (
     <div className="toolbar">
-      <div className="tool-group">
-        <label htmlFor="color-picker">Color</label>
+      <div className="toolbar-group">
+        <span className="toolbar-label">Color</span>
 
         <input
-          id="color-picker"
+          className="color-input"
           type="color"
           value={color}
-          disabled={isEraser}
-          onChange={(event) =>
-            onColorChange(event.target.value)
-          }
+          onChange={(event) => onColorChange(event.target.value)}
         />
       </div>
 
-      <div className="tool-group brush-control">
-        <label htmlFor="brush-size">
-          Brush: <strong>{brushSize}px</strong>
-        </label>
+      <div className="toolbar-group brush-group">
+        <span className="toolbar-label">Brush</span>
 
         <input
-          id="brush-size"
+          className="brush-input"
           type="range"
           min="1"
           max="30"
@@ -52,39 +47,43 @@ function Toolbar({
             onBrushSizeChange(Number(event.target.value))
           }
         />
+
+        <span className="brush-value">{brushSize}px</span>
       </div>
 
-      <div className="tool-actions">
-        <button
-          type="button"
-          onClick={() => onEraserChange(!isEraser)}
-          className={isEraser ? "active" : ""}
-        >
-          {isEraser ? "Pen" : "Eraser"}
-        </button>
+      <div className="toolbar-divider" />
 
-        <button
-          type="button"
-          onClick={onUndo}
-        >
-          Undo
-        </button>
+      <button
+        type="button"
+        className={`toolbar-button ${isEraser ? "active" : ""}`}
+        onClick={() => onEraserChange(!isEraser)}
+      >
+        🧹 Eraser
+      </button>
 
-        <button
-          type="button"
-          onClick={onRedo}
-        >
-          Redo
-        </button>
+      <button
+        type="button"
+        className="toolbar-button"
+        onClick={onUndo}
+      >
+        ↩ Undo
+      </button>
 
-        <button
-          type="button"
-          onClick={onClear}
-          className="clear-button"
-        >
-          Clear
-        </button>
-      </div>
+      <button
+        type="button"
+        className="toolbar-button"
+        onClick={onRedo}
+      >
+        ↪ Redo
+      </button>
+
+      <button
+        type="button"
+        className="toolbar-button clear-button"
+        onClick={onClear}
+      >
+        🗑 Clear
+      </button>
     </div>
   );
 }

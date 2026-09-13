@@ -1,74 +1,94 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Canvas from "./components/Canvas";
+import { Canvas } from "./components/Canvas";
+import type { CanvasHandle } from "./components/Canvas";
 import Toolbar from "./components/Toolbar";
-import "./App.css";
+import { useWebSocket } from "./hooks/useWebSocket";
 
 function App() {
   const [color, setColor] = useState("#000000");
   const [brushSize, setBrushSize] = useState(5);
   const [isEraser, setIsEraser] = useState(false);
 
-  const undoRef = useRef<() => void>(() => {});
-  const redoRef = useRef<() => void>(() => {});
-  const clearRef = useRef<() => void>(() => {});
+  const canvasRef = useRef<CanvasHandle | null>(null);
+
+  const { isConnected, sendMessage } = useWebSocket();
+
+  const handleUndo = useCallback(() => {
+    canvasRef.current?.undo();
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    canvasRef.current?.redo();
+  }, []);
+
+  const handleClear = useCallback(() => {
+    canvasRef.current?.clear();
+
+    sendMessage({
+      type: "clear",
+    });
+  }, [sendMessage]);
 
   const handleCanvasReady = useCallback(
-    (
-      undo: () => void,
-      redo: () => void,
-      clear: () => void
-    ) => {
-      undoRef.current = undo;
-      redoRef.current = redo;
-      clearRef.current = clear;
+    (canvas: HTMLCanvasElement) => {
+      console.log("Canvas ready:", canvas);
     },
     []
   );
 
   useEffect(() => {
-    const handleKeyboard = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement;
-
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA"
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z"
       ) {
-        return;
-      }
-
-      if (event.ctrlKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
 
         if (event.shiftKey) {
-          redoRef.current();
+          handleRedo();
         } else {
-          undoRef.current();
+          handleUndo();
         }
-
-        return;
       }
 
-      if (event.ctrlKey && event.key.toLowerCase() === "y") {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "y"
+      ) {
         event.preventDefault();
-        redoRef.current();
-        return;
+        handleRedo();
       }
 
       if (event.key.toLowerCase() === "e") {
-        setIsEraser((previous) => !previous);
+        setIsEraser((current) => !current);
       }
     };
 
-    window.addEventListener("keydown", handleKeyboard);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyboard);
+      window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [handleRedo, handleUndo]);
 
   return (
-    <div className="app">
-      <h1>Collaborative Whiteboard</h1>
+    <main className="app">
+      <header className="app-header">
+        <div>
+          <h1>Collaborative Whiteboard</h1>
+          <p>Draw together in real time</p>
+        </div>
+
+        <div className="connection-status">
+          <span
+            className={`status-dot ${
+              isConnected ? "connected" : "disconnected"
+            }`}
+          />
+
+          {isConnected ? "Connected" : "Disconnected"}
+        </div>
+      </header>
 
       <Toolbar
         color={color}
@@ -77,32 +97,24 @@ function App() {
         onColorChange={setColor}
         onBrushSizeChange={setBrushSize}
         onEraserChange={setIsEraser}
-        onUndo={() => undoRef.current()}
-        onRedo={() => redoRef.current()}
-        onClear={() => clearRef.current()}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onClear={handleClear}
       />
 
       <Canvas
+        ref={canvasRef}
         color={color}
         brushSize={brushSize}
         isEraser={isEraser}
         onCanvasReady={handleCanvasReady}
+        onDraw={() => {
+          sendMessage({
+            type: "draw",
+          });
+        }}
       />
-
-      <div className="shortcuts">
-        <span>
-          Undo: <strong>Ctrl + Z</strong>
-        </span>
-
-        <span>
-          Redo: <strong>Ctrl + Y</strong>
-        </span>
-
-        <span>
-          Eraser: <strong>E</strong>
-        </span>
-      </div>
-    </div>
+    </main>
   );
 }
 

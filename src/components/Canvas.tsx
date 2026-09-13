@@ -1,226 +1,246 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+
+export interface CanvasHandle {
+  undo: () => void;
+  redo: () => void;
+  clear: () => void;
+}
 
 interface CanvasProps {
   color: string;
   brushSize: number;
   isEraser: boolean;
-  onCanvasReady: (
-    undo: () => void,
-    redo: () => void,
-    clear: () => void
-  ) => void;
+  onDraw?: () => void;
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }
 
-function Canvas({
-  color,
-  brushSize,
-  isEraser,
-  onCanvasReady,
-}: CanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  const [isDrawing, setIsDrawing] = useState(false);
-
-  const historyRef = useRef<ImageData[]>([]);
-  const redoHistoryRef = useRef<ImageData[]>([]);
-
-  const saveState = () => {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    const context = canvas.getContext("2d");
-
-    if (!context) return;
-
-    const imageData = context.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-
-    historyRef.current.push(imageData);
-
-    redoHistoryRef.current = [];
-  };
-
-  const getCoordinates = (
-    event: React.PointerEvent<HTMLCanvasElement>
+export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
+  (
+    {
+      color,
+      brushSize,
+      isEraser,
+      onDraw,
+      onCanvasReady,
+    },
+    ref
   ) => {
-    const canvas = canvasRef.current;
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const isDrawingRef = useRef(false);
 
-    if (!canvas) {
-      return { x: 0, y: 0 };
-    }
+    const historyRef = useRef<ImageData[]>([]);
+    const redoStackRef = useRef<ImageData[]>([]);
 
-    const rect = canvas.getBoundingClientRect();
+    useEffect(() => {
+      const canvas = canvasRef.current;
 
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+      if (canvas && onCanvasReady) {
+        onCanvasReady(canvas);
+      }
+    }, [onCanvasReady]);
 
-    return {
-      x: (event.clientX - rect.left) * scaleX,
-      y: (event.clientY - rect.top) * scaleY,
+    const getCoordinates = (
+      event: ReactPointerEvent<HTMLCanvasElement>
+    ) => {
+      const canvas = canvasRef.current;
+
+      if (!canvas) {
+        return { x: 0, y: 0 };
+      }
+
+      const rect = canvas.getBoundingClientRect();
+
+      return {
+        x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+        y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+      };
     };
-  };
 
-  const startDrawing = (
-    event: React.PointerEvent<HTMLCanvasElement>
-  ) => {
-    const canvas = canvasRef.current;
+    const saveState = () => {
+      const canvas = canvasRef.current;
 
-    if (!canvas) return;
+      if (!canvas) return;
 
-    const context = canvas.getContext("2d");
+      const context = canvas.getContext("2d");
 
-    if (!context) return;
+      if (!context) return;
 
-    canvas.setPointerCapture(event.pointerId);
+      historyRef.current.push(
+        context.getImageData(
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        )
+      );
 
-    saveState();
+      redoStackRef.current = [];
+    };
 
-    const { x, y } = getCoordinates(event);
+    const startDrawing = (
+      event: ReactPointerEvent<HTMLCanvasElement>
+    ) => {
+      const canvas = canvasRef.current;
 
-    context.beginPath();
-    context.moveTo(x, y);
+      if (!canvas) return;
 
-    setIsDrawing(true);
-  };
+      saveState();
 
-  const draw = (
-    event: React.PointerEvent<HTMLCanvasElement>
-  ) => {
-    if (!isDrawing) return;
+      canvas.setPointerCapture(event.pointerId);
 
-    const canvas = canvasRef.current;
+      isDrawingRef.current = true;
 
-    if (!canvas) return;
+      const { x, y } = getCoordinates(event);
 
-    const context = canvas.getContext("2d");
+      const context = canvas.getContext("2d");
 
-    if (!context) return;
+      if (!context) return;
 
-    const { x, y } = getCoordinates(event);
+      context.beginPath();
+      context.moveTo(x, y);
+    };
 
-    context.lineTo(x, y);
+    const draw = (
+      event: ReactPointerEvent<HTMLCanvasElement>
+    ) => {
+      if (!isDrawingRef.current) return;
 
-    context.strokeStyle = isEraser ? "#ffffff" : color;
-    context.lineWidth = brushSize;
-    context.lineCap = "round";
-    context.lineJoin = "round";
+      const canvas = canvasRef.current;
 
-    context.stroke();
-  };
+      if (!canvas) return;
 
-  const stopDrawing = (
-    event: React.PointerEvent<HTMLCanvasElement>
-  ) => {
-    if (!isDrawing) return;
+      const context = canvas.getContext("2d");
 
-    const canvas = canvasRef.current;
+      if (!context) return;
 
-    if (
-      canvas &&
-      canvas.hasPointerCapture(event.pointerId)
-    ) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
+      const { x, y } = getCoordinates(event);
 
-    setIsDrawing(false);
-  };
+      context.lineWidth = brushSize;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.strokeStyle = isEraser ? "#ffffff" : color;
 
-  const undo = () => {
-    const canvas = canvasRef.current;
+      context.lineTo(x, y);
+      context.stroke();
 
-    if (!canvas) return;
+      onDraw?.();
+    };
 
-    const context = canvas.getContext("2d");
+    const stopDrawing = (
+      event: ReactPointerEvent<HTMLCanvasElement>
+    ) => {
+      const canvas = canvasRef.current;
 
-    if (!context) return;
+      if (!canvas) return;
 
-    const previousState = historyRef.current.pop();
+      if (canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
 
-    if (!previousState) return;
+      isDrawingRef.current = false;
+    };
 
-    const currentState = context.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height
+    const undo = () => {
+      const canvas = canvasRef.current;
+
+      if (!canvas) return;
+
+      const context = canvas.getContext("2d");
+
+      if (!context) return;
+
+      if (historyRef.current.length === 0) return;
+
+      const currentState = context.getImageData(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+      redoStackRef.current.push(currentState);
+
+      const previousState = historyRef.current.pop();
+
+      if (previousState) {
+        context.putImageData(previousState, 0, 0);
+      }
+    };
+
+    const redo = () => {
+      const canvas = canvasRef.current;
+
+      if (!canvas) return;
+
+      const context = canvas.getContext("2d");
+
+      if (!context) return;
+
+      if (redoStackRef.current.length === 0) return;
+
+      const currentState = context.getImageData(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+      historyRef.current.push(currentState);
+
+      const nextState = redoStackRef.current.pop();
+
+      if (nextState) {
+        context.putImageData(nextState, 0, 0);
+      }
+    };
+
+    const clear = () => {
+      const canvas = canvasRef.current;
+
+      if (!canvas) return;
+
+      const context = canvas.getContext("2d");
+
+      if (!context) return;
+
+      saveState();
+
+      context.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+    };
+
+    useImperativeHandle(ref, () => ({
+      undo,
+      redo,
+      clear,
+    }));
+
+    return (
+      <div className="canvas-wrapper">
+        <canvas
+          ref={canvasRef}
+          width={1000}
+          height={600}
+          className="drawing-canvas"
+          onPointerDown={startDrawing}
+          onPointerMove={draw}
+          onPointerUp={stopDrawing}
+          onPointerCancel={stopDrawing}
+          onContextMenu={(event) => event.preventDefault()}
+        />
+      </div>
     );
+  }
+);
 
-    redoHistoryRef.current.push(currentState);
-
-    context.putImageData(previousState, 0, 0);
-  };
-
-  const redo = () => {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    const context = canvas.getContext("2d");
-
-    if (!context) return;
-
-    const nextState = redoHistoryRef.current.pop();
-
-    if (!nextState) return;
-
-    const currentState = context.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-
-    historyRef.current.push(currentState);
-
-    context.putImageData(nextState, 0, 0);
-  };
-
-  const clear = () => {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    const context = canvas.getContext("2d");
-
-    if (!context) return;
-
-    saveState();
-
-    context.clearRect(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-  };
-
-  useEffect(() => {
-    onCanvasReady(undo, redo, clear);
-  }, [onCanvasReady]);
-
-  return (
-    <div className="canvas-container">
-      <canvas
-        ref={canvasRef}
-        width={1000}
-        height={600}
-        onPointerDown={startDrawing}
-        onPointerMove={draw}
-        onPointerUp={stopDrawing}
-        onPointerCancel={stopDrawing}
-        onContextMenu={(event) => event.preventDefault()}
-        style={{
-          touchAction: "none",
-          userSelect: "none",
-        }}
-      />
-    </div>
-  );
-}
-
-export default Canvas;
+Canvas.displayName = "Canvas";
