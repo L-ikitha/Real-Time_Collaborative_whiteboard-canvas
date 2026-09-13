@@ -203,32 +203,36 @@ function App() {
     handleUserListChange
   );
 
+  /*
+   * Canvas handles sending the actual
+   * undo request.
+   *
+   * The server decides which stroke
+   * belongs to this user and broadcasts
+   * the exact strokeId to everyone.
+   */
   const handleUndo =
     useCallback(() => {
       canvasRef.current?.undo();
+    }, []);
 
-      sendMessage({
-        type: "undo",
-      });
-    }, [sendMessage]);
-
+  /*
+   * Canvas handles sending the actual
+   * redo request.
+   */
   const handleRedo =
     useCallback(() => {
       canvasRef.current?.redo();
+    }, []);
 
-      sendMessage({
-        type: "redo",
-      });
-    }, [sendMessage]);
-
+  /*
+   * Canvas handles sending the clear
+   * request.
+   */
   const handleClear =
     useCallback(() => {
       canvasRef.current?.clear();
-
-      sendMessage({
-        type: "clear",
-      });
-    }, [sendMessage]);
+    }, []);
 
   const handleJoinRoom = () => {
     const trimmedRoom =
@@ -263,8 +267,6 @@ function App() {
     setOnlineUsers(1);
 
     setCursors([]);
-
-    canvasRef.current?.clear();
 
     setRemoteMessage(null);
   };
@@ -368,44 +370,16 @@ function App() {
   ]);
 
   /*
-   * Apply remote undo/redo.
+   * IMPORTANT:
    *
-   * The local operation is already
-   * performed by the sender, so the
-   * receiving browser only performs it.
+   * Do NOT call canvas.undo(),
+   * canvas.redo(), or canvas.clear()
+   * here.
+   *
+   * Canvas already receives the
+   * server message through remoteMessage
+   * and handles the exact strokeId.
    */
-  useEffect(() => {
-    if (!remoteMessage) {
-      return;
-    }
-
-    if (
-      remoteMessage.type ===
-      "undo"
-    ) {
-      canvasRef.current?.undo();
-      setRemoteMessage(null);
-      return;
-    }
-
-    if (
-      remoteMessage.type ===
-      "redo"
-    ) {
-      canvasRef.current?.redo();
-      setRemoteMessage(null);
-      return;
-    }
-
-    if (
-      remoteMessage.type ===
-      "clear"
-    ) {
-      canvasRef.current?.clear();
-      setRemoteMessage(null);
-    }
-  }, [remoteMessage]);
-
   return (
     <main className="app">
       <header className="app-header">

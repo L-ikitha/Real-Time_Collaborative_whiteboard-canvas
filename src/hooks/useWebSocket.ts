@@ -16,6 +16,10 @@ export interface DrawingMessage {
     | "undo"
     | "redo";
 
+  strokeId?: string;
+  userId?: string;
+  userName?: string;
+
   x?: number;
   y?: number;
   previousX?: number;
@@ -66,6 +70,8 @@ interface ServerMessage {
 
   userId?: string;
   userName?: string;
+
+  strokeId?: string;
 
   x?: number;
   y?: number;
@@ -222,6 +228,12 @@ export function useWebSocket(
         ) {
           onMessageRef.current?.({
             type: "draw",
+            strokeId:
+              message.strokeId,
+            userId:
+              message.userId,
+            userName:
+              message.userName,
             x: message.x,
             y: message.y,
             previousX:
@@ -254,6 +266,12 @@ export function useWebSocket(
         ) {
           onMessageRef.current?.({
             type: "undo",
+            strokeId:
+              message.strokeId,
+            userId:
+              message.userId,
+            userName:
+              message.userName,
           });
 
           return;
@@ -264,6 +282,12 @@ export function useWebSocket(
         ) {
           onMessageRef.current?.({
             type: "redo",
+            strokeId:
+              message.strokeId,
+            userId:
+              message.userId,
+            userName:
+              message.userName,
           });
 
           return;

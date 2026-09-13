@@ -1,421 +1,718 @@
-import { randomUUID } from "node:crypto";
-
-import {
-  WebSocketServer,
-  WebSocket,
-} from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT) || 8080;
+
+interface ClientInfo {
+  userId: string;
+  userName: string;
+  roomId: string | null;
+}
+
+interface DrawSegment {
+  strokeId: string;
+  userId: string;
+  userName: string;
+  x: number;
+  y: number;
+  previousX: number;
+  previousY: number;
+  color: string;
+  brushSize: number;
+  isEraser: boolean;
+}
+
+interface Stroke {
+  strokeId: string;
+  userId: string;
+  userName: string;
+  segments: DrawSegment[];
+  active: boolean;
+}
+
+interface RoomState {
+  clients: Map<WebSocket, ClientInfo>;
+  strokes: Stroke[];
+  redoStacks: Map<string, string[]>;
+}
+
+interface ClientMessage {
+  type:
+    | "join-room"
+    | "draw"
+    | "undo"
+    | "redo"
+    | "clear"
+    | "cursor";
+
+  roomId?: string;
+  userName?: string;
+
+  strokeId?: string;
+
+  x?: number;
+  y?: number;
+  previousX?: number;
+  previousY?: number;
+
+  color?: string;
+  brushSize?: number;
+  isEraser?: boolean;
+}
+
+const rooms = new Map<string, RoomState>();
+
+const clientInfo = new Map<
+  WebSocket,
+  ClientInfo
+>();
 
 const server = new WebSocketServer({
   port: PORT,
   host: "0.0.0.0",
 });
 
-interface ClientInfo {
-  socket: WebSocket;
-  userId: string;
-  userName: string;
-}
+console.log(
+  `WebSocket server running on port ${PORT}`
+);
 
-const rooms = new Map<
-  string,
-  Map<WebSocket, ClientInfo>
->();
-
-function getRoom(roomId: string) {
-  return rooms.get(roomId);
-}
-
-function joinRoom(
-  client: ClientInfo,
+function getRoom(
   roomId: string
-) {
+): RoomState {
   let room = rooms.get(roomId);
 
   if (!room) {
-    room = new Map();
+    room = {
+      clients: new Map(),
+      strokes: [],
+      redoStacks: new Map(),
+    };
+
     rooms.set(roomId, room);
   }
 
-  room.set(
-    client.socket,
-    client
-  );
+  return room;
 }
 
-function leaveRoom(
+function send(
   socket: WebSocket,
-  roomId: string | null
+  message: unknown
 ) {
-  if (!roomId) {
-    return;
-  }
-
-  const room = rooms.get(roomId);
-
-  if (!room) {
-    return;
-  }
-
-  room.delete(socket);
-
-  if (room.size === 0) {
-    rooms.delete(roomId);
+  if (
+    socket.readyState ===
+    WebSocket.OPEN
+  ) {
+    socket.send(
+      JSON.stringify(message)
+    );
   }
 }
 
 function broadcastToRoom(
-  roomId: string,
-  sender: WebSocket,
-  message: string
+  room: RoomState,
+  message: unknown,
+  exclude?: WebSocket
 ) {
-  const room = getRoom(roomId);
-
-  if (!room) {
-    return;
-  }
-
-  room.forEach((client) => {
-    if (
-      client.socket !== sender &&
-      client.socket.readyState ===
-        WebSocket.OPEN
-    ) {
-      client.socket.send(message);
+  for (const socket of room.clients.keys()) {
+    if (socket === exclude) {
+      continue;
     }
+
+    send(socket, message);
+  }
+}
+
+function broadcastToAllInRoom(
+  room: RoomState,
+  message: unknown
+) {
+  for (const socket of room.clients.keys()) {
+    send(socket, message);
+  }
+}
+
+function sendPresence(
+  room: RoomState
+) {
+  const count =
+    room.clients.size;
+
+  broadcastToAllInRoom(room, {
+    type: "presence",
+    count,
   });
 }
 
 function sendUserList(
-  roomId: string,
-  socket: WebSocket
+  room: RoomState
 ) {
-  const room = getRoom(roomId);
-
-  if (!room) {
-    return;
-  }
-
   const users = Array.from(
-    room.values()
+    room.clients.values()
   ).map((client) => ({
     userId: client.userId,
     userName: client.userName,
   }));
 
-  socket.send(
-    JSON.stringify({
-      type: "user-list",
-      users,
-    })
+  broadcastToAllInRoom(room, {
+    type: "user-list",
+    users,
+  });
+}
+
+function leaveRoom(
+  socket: WebSocket
+) {
+  const client =
+    clientInfo.get(socket);
+
+  if (!client?.roomId) {
+    clientInfo.delete(socket);
+    return;
+  }
+
+  const room =
+    rooms.get(client.roomId);
+
+  if (!room) {
+    clientInfo.delete(socket);
+    return;
+  }
+
+  room.clients.delete(socket);
+
+  broadcastToAllInRoom(room, {
+    type: "user-left",
+    userId: client.userId,
+    userName: client.userName,
+  });
+
+  sendPresence(room);
+  sendUserList(room);
+
+  clientInfo.delete(socket);
+
+  if (room.clients.size === 0) {
+    rooms.delete(client.roomId);
+  }
+}
+
+function sendExistingDrawing(
+  socket: WebSocket,
+  room: RoomState
+) {
+  for (const stroke of room.strokes) {
+    if (!stroke.active) {
+      continue;
+    }
+
+    for (const segment of stroke.segments) {
+      send(socket, {
+        type: "draw",
+        strokeId:
+          segment.strokeId,
+        userId:
+          segment.userId,
+        userName:
+          segment.userName,
+        x: segment.x,
+        y: segment.y,
+        previousX:
+          segment.previousX,
+        previousY:
+          segment.previousY,
+        color:
+          segment.color,
+        brushSize:
+          segment.brushSize,
+        isEraser:
+          segment.isEraser,
+      });
+    }
+  }
+}
+
+function handleJoinRoom(
+  socket: WebSocket,
+  message: ClientMessage
+) {
+  if (
+    !message.roomId ||
+    !message.userName
+  ) {
+    return;
+  }
+
+  const oldClient =
+    clientInfo.get(socket);
+
+  if (oldClient?.roomId) {
+    leaveRoom(socket);
+  }
+
+  const userId =
+    crypto.randomUUID();
+
+  const roomId =
+    message.roomId.trim();
+
+  const userName =
+    message.userName.trim() ||
+    "Anonymous";
+
+  const room =
+    getRoom(roomId);
+
+  const client: ClientInfo = {
+    userId,
+    userName,
+    roomId,
+  };
+
+  clientInfo.set(
+    socket,
+    client
+  );
+
+  room.clients.set(
+    socket,
+    client
+  );
+
+  send(socket, {
+    type: "room-joined",
+    roomId,
+    userId,
+    userName,
+  });
+
+  sendExistingDrawing(
+    socket,
+    room
+  );
+
+  broadcastToRoom(
+    room,
+    {
+      type: "user-joined",
+      userId,
+      userName,
+    },
+    socket
+  );
+
+  sendPresence(room);
+  sendUserList(room);
+
+  console.log(
+    `${userName} joined room ${roomId}`
   );
 }
 
-function broadcastUserList(
-  roomId: string
+function handleDraw(
+  socket: WebSocket,
+  message: ClientMessage
 ) {
-  const room = getRoom(roomId);
+  const client =
+    clientInfo.get(socket);
+
+  if (
+    !client?.roomId ||
+    !message.strokeId ||
+    typeof message.x !== "number" ||
+    typeof message.y !== "number" ||
+    typeof message.previousX !==
+      "number" ||
+    typeof message.previousY !==
+      "number" ||
+    typeof message.color !== "string" ||
+    typeof message.brushSize !==
+      "number" ||
+    typeof message.isEraser !==
+      "boolean"
+  ) {
+    return;
+  }
+
+  const room =
+    rooms.get(client.roomId);
 
   if (!room) {
     return;
   }
 
-  const users = Array.from(
-    room.values()
-  ).map((client) => ({
-    userId: client.userId,
-    userName: client.userName,
-  }));
+  let stroke =
+    room.strokes.find(
+      (item) =>
+        item.strokeId ===
+        message.strokeId
+    );
 
-  const message =
-    JSON.stringify({
-      type: "user-list",
-      users,
-    });
+  if (!stroke) {
+    stroke = {
+      strokeId:
+        message.strokeId,
+      userId:
+        client.userId,
+      userName:
+        client.userName,
+      segments: [],
+      active: true,
+    };
 
-  room.forEach((client) => {
-    if (
-      client.socket.readyState ===
-      WebSocket.OPEN
-    ) {
-      client.socket.send(message);
-    }
-  });
+    room.strokes.push(stroke);
+
+    // A new drawing after an undo
+    // invalidates that user's redo history.
+    room.redoStacks.set(
+      client.userId,
+      []
+    );
+  }
+
+  // Only the user who created the stroke
+  // can add segments to it.
+  if (
+    stroke.userId !==
+    client.userId
+  ) {
+    return;
+  }
+
+  const segment: DrawSegment = {
+    strokeId:
+      message.strokeId,
+    userId:
+      client.userId,
+    userName:
+      client.userName,
+    x: message.x,
+    y: message.y,
+    previousX:
+      message.previousX,
+    previousY:
+      message.previousY,
+    color:
+      message.color,
+    brushSize:
+      message.brushSize,
+    isEraser:
+      message.isEraser,
+  };
+
+  stroke.segments.push(
+    segment
+  );
+
+  broadcastToRoom(
+    room,
+    {
+      type: "draw",
+      strokeId:
+        segment.strokeId,
+      userId:
+        segment.userId,
+      userName:
+        segment.userName,
+      x: segment.x,
+      y: segment.y,
+      previousX:
+        segment.previousX,
+      previousY:
+        segment.previousY,
+      color:
+        segment.color,
+      brushSize:
+        segment.brushSize,
+      isEraser:
+        segment.isEraser,
+    },
+    socket
+  );
 }
 
-function broadcastPresence(
-  roomId: string
+function handleUndo(
+  socket: WebSocket
 ) {
-  const room = getRoom(roomId);
+  const client =
+    clientInfo.get(socket);
+
+  if (!client?.roomId) {
+    return;
+  }
+
+  const room =
+    rooms.get(client.roomId);
 
   if (!room) {
     return;
   }
 
-  const message =
-    JSON.stringify({
-      type: "presence",
-      count: room.size,
-    });
+  // Find the latest ACTIVE stroke
+  // created by this specific user.
+  let targetStroke:
+    | Stroke
+    | undefined;
 
-  room.forEach((client) => {
+  for (
+    let index =
+      room.strokes.length - 1;
+    index >= 0;
+    index--
+  ) {
+    const stroke =
+      room.strokes[index];
+
     if (
-      client.socket.readyState ===
-      WebSocket.OPEN
+      stroke.userId ===
+        client.userId &&
+      stroke.active
     ) {
-      client.socket.send(message);
+      targetStroke = stroke;
+      break;
     }
-  });
+  }
+
+  if (!targetStroke) {
+    return;
+  }
+
+  targetStroke.active = false;
+
+  const redoStack =
+    room.redoStacks.get(
+      client.userId
+    ) || [];
+
+  redoStack.push(
+    targetStroke.strokeId
+  );
+
+  room.redoStacks.set(
+    client.userId,
+    redoStack
+  );
+
+  // IMPORTANT:
+  // Send to EVERYONE, including the
+  // person who clicked Undo.
+  broadcastToAllInRoom(
+    room,
+    {
+      type: "undo",
+      strokeId:
+        targetStroke.strokeId,
+      userId:
+        client.userId,
+      userName:
+        client.userName,
+    }
+  );
+
+  console.log(
+    `${client.userName} undid stroke ${targetStroke.strokeId}`
+  );
 }
 
-function broadcastUserEvent(
-  roomId: string,
-  sender: WebSocket,
-  type:
-    | "user-joined"
-    | "user-left",
-  userId: string,
-  userName: string
+function handleRedo(
+  socket: WebSocket
 ) {
-  const room = getRoom(roomId);
+  const client =
+    clientInfo.get(socket);
+
+  if (!client?.roomId) {
+    return;
+  }
+
+  const room =
+    rooms.get(client.roomId);
 
   if (!room) {
     return;
   }
 
-  const message =
-    JSON.stringify({
-      type,
-      userId,
-      userName,
-    });
+  const redoStack =
+    room.redoStacks.get(
+      client.userId
+    ) || [];
 
-  room.forEach((client) => {
-    if (
-      client.socket !== sender &&
-      client.socket.readyState ===
-        WebSocket.OPEN
-    ) {
-      client.socket.send(message);
+  if (redoStack.length === 0) {
+    return;
+  }
+
+  const strokeId =
+    redoStack.pop();
+
+  if (!strokeId) {
+    return;
+  }
+
+  const stroke =
+    room.strokes.find(
+      (item) =>
+        item.strokeId ===
+        strokeId &&
+        item.userId ===
+          client.userId
+    );
+
+  if (!stroke) {
+    return;
+  }
+
+  stroke.active = true;
+
+  room.redoStacks.set(
+    client.userId,
+    redoStack
+  );
+
+  // Send to EVERYONE.
+  broadcastToAllInRoom(
+    room,
+    {
+      type: "redo",
+      strokeId:
+        stroke.strokeId,
+      userId:
+        client.userId,
+      userName:
+        client.userName,
     }
-  });
+  );
+
+  console.log(
+    `${client.userName} redid stroke ${stroke.strokeId}`
+  );
+}
+
+function handleClear(
+  socket: WebSocket
+) {
+  const client =
+    clientInfo.get(socket);
+
+  if (!client?.roomId) {
+    return;
+  }
+
+  const room =
+    rooms.get(client.roomId);
+
+  if (!room) {
+    return;
+  }
+
+  room.strokes = [];
+  room.redoStacks.clear();
+
+  // Send to EVERYONE.
+  broadcastToAllInRoom(
+    room,
+    {
+      type: "clear",
+    }
+  );
+
+  console.log(
+    `${client.userName} cleared room ${client.roomId}`
+  );
+}
+
+function handleCursor(
+  socket: WebSocket,
+  message: ClientMessage
+) {
+  const client =
+    clientInfo.get(socket);
+
+  if (
+    !client?.roomId ||
+    typeof message.x !== "number" ||
+    typeof message.y !== "number"
+  ) {
+    return;
+  }
+
+  const room =
+    rooms.get(client.roomId);
+
+  if (!room) {
+    return;
+  }
+
+  broadcastToRoom(
+    room,
+    {
+      type: "cursor",
+      userId:
+        client.userId,
+      userName:
+        client.userName,
+      x: message.x,
+      y: message.y,
+    },
+    socket
+  );
 }
 
 server.on(
   "connection",
-  (socket: WebSocket) => {
+  (socket) => {
     console.log(
-      "Client connected"
+      "New WebSocket connection"
     );
 
-    let currentRoom:
-      | string
-      | null = null;
-
-    const userId =
-      randomUUID();
-
-    let userName =
-      "Anonymous";
-
-    socket.send(
-      JSON.stringify({
-        type: "connection",
-        message:
-          "Connected to whiteboard server",
-        userId,
-      })
-    );
+    send(socket, {
+      type: "connection",
+      message:
+        "Connected to collaborative whiteboard server",
+    });
 
     socket.on(
       "message",
-      (message) => {
+      (rawMessage) => {
         try {
-          const data =
+          const message: ClientMessage =
             JSON.parse(
-              message.toString()
+              rawMessage.toString()
             );
 
-          if (
-            data.type ===
-            "join-room"
-          ) {
-            const newRoom =
-              typeof data.roomId ===
-              "string"
-                ? data.roomId.trim()
-                : "";
-
-            if (!newRoom) {
-              return;
-            }
-
-            const newUserName =
-              typeof data.userName ===
-              "string"
-                ? data.userName.trim()
-                : "";
-
-            if (newUserName) {
-              userName =
-                newUserName;
-            }
-
-            const previousRoom =
-              currentRoom;
-
-            if (
-              previousRoom ===
-              newRoom
-            ) {
-              socket.send(
-                JSON.stringify({
-                  type:
-                    "room-joined",
-                  roomId:
-                    newRoom,
-                  userId,
-                  userName,
-                })
-              );
-
-              sendUserList(
-                newRoom,
-                socket
-              );
-
-              broadcastPresence(
-                newRoom
-              );
-
-              return;
-            }
-
-            if (previousRoom) {
-              broadcastUserEvent(
-                previousRoom,
+          switch (message.type) {
+            case "join-room":
+              handleJoinRoom(
                 socket,
-                "user-left",
-                userId,
-                userName
+                message
               );
+              break;
 
-              leaveRoom(
+            case "draw":
+              handleDraw(
                 socket,
-                previousRoom
+                message
               );
+              break;
 
-              broadcastPresence(
-                previousRoom
-              );
+            case "undo":
+              handleUndo(socket);
+              break;
 
-              broadcastUserList(
-                previousRoom
-              );
-            }
+            case "redo":
+              handleRedo(socket);
+              break;
 
-            currentRoom =
-              newRoom;
+            case "clear":
+              handleClear(socket);
+              break;
 
-            const client: ClientInfo =
-              {
+            case "cursor":
+              handleCursor(
                 socket,
-                userId,
-                userName,
-              };
+                message
+              );
+              break;
 
-            joinRoom(
-              client,
-              newRoom
-            );
-
-            socket.send(
-              JSON.stringify({
-                type:
-                  "room-joined",
-                roomId:
-                  newRoom,
-                userId,
-                userName,
-              })
-            );
-
-            broadcastUserEvent(
-              newRoom,
-              socket,
-              "user-joined",
-              userId,
-              userName
-            );
-
-            broadcastPresence(
-              newRoom
-            );
-
-            broadcastUserList(
-              newRoom
-            );
-
-            sendUserList(
-              newRoom,
-              socket
-            );
-
-            console.log(
-              `${userName} joined room: ${newRoom}`
-            );
-
-            return;
+            default:
+              break;
           }
-
-          if (!currentRoom) {
-            return;
-          }
-
-          if (
-            data.type ===
-            "cursor"
-          ) {
-            broadcastToRoom(
-              currentRoom,
-              socket,
-              JSON.stringify({
-                type: "cursor",
-                userId,
-                userName,
-                x: data.x,
-                y: data.y,
-              })
-            );
-
-            return;
-          }
-
-          if (
-            data.type ===
-              "undo" ||
-            data.type ===
-              "redo"
-          ) {
-            broadcastToRoom(
-              currentRoom,
-              socket,
-              JSON.stringify({
-                type: data.type,
-                userId,
-                userName,
-              })
-            );
-
-            return;
-          }
-
-          broadcastToRoom(
-            currentRoom,
-            socket,
-            message.toString()
-          );
         } catch (error) {
           console.error(
             "Invalid message:",
@@ -425,43 +722,19 @@ server.on(
       }
     );
 
-    socket.on(
-      "close",
-      () => {
-        if (currentRoom) {
-          const room =
-            currentRoom;
+    socket.on("close", () => {
+      console.log(
+        "WebSocket connection closed"
+      );
 
-          broadcastUserEvent(
-            room,
-            socket,
-            "user-left",
-            userId,
-            userName
-          );
+      leaveRoom(socket);
+    });
 
-          leaveRoom(
-            socket,
-            room
-          );
-
-          broadcastPresence(
-            room
-          );
-
-          broadcastUserList(
-            room
-          );
-
-          console.log(
-            `${userName} disconnected from room: ${room}`
-          );
-        }
-      }
-    );
+    socket.on("error", (error) => {
+      console.error(
+        "WebSocket error:",
+        error
+      );
+    });
   }
-);
-
-console.log(
-  `WebSocket server running on port ${PORT}`
 );
