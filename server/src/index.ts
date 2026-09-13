@@ -9,6 +9,7 @@ const PORT = Number(process.env.PORT) || 8080;
 
 const server = new WebSocketServer({
   port: PORT,
+  host: "0.0.0.0",
 });
 
 interface ClientInfo {
