@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = 8080;
@@ -6,23 +7,44 @@ const server = new WebSocketServer({
   port: PORT,
 });
 
-const rooms = new Map<string, Set<WebSocket>>();
+interface ClientInfo {
+  socket: WebSocket;
+  userId: string;
+  userName: string;
+}
 
-function joinRoom(socket: WebSocket, roomId: string) {
+const rooms = new Map<
+  string,
+  Map<WebSocket, ClientInfo>
+>();
+
+function joinRoom(
+  client: ClientInfo,
+  roomId: string
+) {
   let room = rooms.get(roomId);
 
   if (!room) {
-    room = new Set<WebSocket>();
+    room = new Map<WebSocket, ClientInfo>();
     rooms.set(roomId, room);
   }
 
-  room.add(socket);
+  room.set(client.socket, client);
 }
 
-function leaveRoom(socket: WebSocket, roomId: string) {
+function leaveRoom(
+  socket: WebSocket,
+  roomId: string | null
+) {
+  if (!roomId) {
+    return;
+  }
+
   const room = rooms.get(roomId);
 
-  if (!room) return;
+  if (!room) {
+    return;
+  }
 
   room.delete(socket);
 
@@ -38,14 +60,16 @@ function broadcastToRoom(
 ) {
   const room = rooms.get(roomId);
 
-  if (!room) return;
+  if (!room) {
+    return;
+  }
 
   room.forEach((client) => {
     if (
-      client !== sender &&
-      client.readyState === WebSocket.OPEN
+      client.socket !== sender &&
+      client.socket.readyState === WebSocket.OPEN
     ) {
-      client.send(message);
+      client.socket.send(message);
     }
   });
 }
@@ -53,7 +77,9 @@ function broadcastToRoom(
 function broadcastPresence(roomId: string) {
   const room = rooms.get(roomId);
 
-  if (!room) return;
+  if (!room) {
+    return;
+  }
 
   const message = JSON.stringify({
     type: "presence",
@@ -61,8 +87,37 @@ function broadcastPresence(roomId: string) {
   });
 
   room.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+    if (client.socket.readyState === WebSocket.OPEN) {
+      client.socket.send(message);
+    }
+  });
+}
+
+function broadcastUserEvent(
+  roomId: string,
+  sender: WebSocket,
+  type: "user-joined" | "user-left",
+  userId: string,
+  userName: string
+) {
+  const room = rooms.get(roomId);
+
+  if (!room) {
+    return;
+  }
+
+  const message = JSON.stringify({
+    type,
+    userId,
+    userName,
+  });
+
+  room.forEach((client) => {
+    if (
+      client.socket !== sender &&
+      client.socket.readyState === WebSocket.OPEN
+    ) {
+      client.socket.send(message);
     }
   });
 }
@@ -70,45 +125,125 @@ function broadcastPresence(roomId: string) {
 server.on("connection", (socket: WebSocket) => {
   console.log("Client connected");
 
-  let currentRoom = "default";
+  let currentRoom: string | null = null;
 
-  joinRoom(socket, currentRoom);
+  const userId = randomUUID();
+
+  let userName = "Anonymous";
 
   socket.send(
     JSON.stringify({
       type: "connection",
       message: "Connected to whiteboard server",
-      roomId: currentRoom,
+      userId,
     })
   );
-
-  broadcastPresence(currentRoom);
 
   socket.on("message", (message) => {
     try {
       const data = JSON.parse(message.toString());
 
       if (data.type === "join-room") {
+        const newRoom =
+          typeof data.roomId === "string"
+            ? data.roomId.trim()
+            : "";
+
+        if (!newRoom) {
+          return;
+        }
+
+        const newUserName =
+          typeof data.userName === "string"
+            ? data.userName.trim()
+            : "";
+
+        if (newUserName) {
+          userName = newUserName;
+        }
+
         const previousRoom = currentRoom;
 
-        leaveRoom(socket, previousRoom);
-        broadcastPresence(previousRoom);
+        if (previousRoom === newRoom) {
+          socket.send(
+            JSON.stringify({
+              type: "room-joined",
+              roomId: newRoom,
+              userId,
+              userName,
+            })
+          );
 
-        currentRoom = data.roomId || "default";
+          broadcastPresence(newRoom);
 
-        joinRoom(socket, currentRoom);
+          return;
+        }
+
+        if (previousRoom) {
+          broadcastUserEvent(
+            previousRoom,
+            socket,
+            "user-left",
+            userId,
+            userName
+          );
+
+          leaveRoom(socket, previousRoom);
+
+          broadcastPresence(previousRoom);
+        }
+
+        currentRoom = newRoom;
+
+        const client: ClientInfo = {
+          socket,
+          userId,
+          userName,
+        };
+
+        joinRoom(client, currentRoom);
 
         socket.send(
           JSON.stringify({
             type: "room-joined",
             roomId: currentRoom,
+            userId,
+            userName,
           })
+        );
+
+        broadcastUserEvent(
+          currentRoom,
+          socket,
+          "user-joined",
+          userId,
+          userName
         );
 
         broadcastPresence(currentRoom);
 
         console.log(
-          `Client joined room: ${currentRoom}`
+          `${userName} joined room: ${currentRoom}`
+        );
+
+        return;
+      }
+
+      if (!currentRoom) {
+        return;
+      }
+
+      if (data.type === "cursor") {
+        broadcastToRoom(
+          currentRoom,
+          socket,
+          JSON.stringify({
+            type: "cursor",
+            userId,
+            userName,
+            x: data.x,
+            y: data.y,
+          })
         );
 
         return;
@@ -120,17 +255,37 @@ server.on("connection", (socket: WebSocket) => {
         message.toString()
       );
     } catch (error) {
-      console.error("Invalid message:", error);
+      console.error(
+        "Invalid message:",
+        error
+      );
     }
   });
 
   socket.on("close", () => {
-    leaveRoom(socket, currentRoom);
-    broadcastPresence(currentRoom);
+    if (currentRoom) {
+      const room = currentRoom;
 
-    console.log(
-      `Client disconnected from room: ${currentRoom}`
-    );
+      broadcastUserEvent(
+        room,
+        socket,
+        "user-left",
+        userId,
+        userName
+      );
+
+      leaveRoom(socket, room);
+
+      broadcastPresence(room);
+
+      console.log(
+        `${userName} disconnected from room: ${room}`
+      );
+    } else {
+      console.log(
+        "Client disconnected without joining a room"
+      );
+    }
   });
 });
 

@@ -101,18 +101,28 @@
   font-weight: 600;
 }
 
+.room-user-name {
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .room-controls {
   display: flex;
   gap: 8px;
 }
 
 .room-controls input {
-  width: 180px;
+  width: 160px;
   height: 36px;
   padding: 0 10px;
   border: 1px solid #d1d5db;
   border-radius: 7px;
   outline: none;
+  background: #ffffff;
 }
 
 .room-controls input:focus {
@@ -128,6 +138,10 @@
   color: #ffffff;
   font-weight: 600;
   cursor: pointer;
+}
+
+.room-controls button:hover:not(:disabled) {
+  background: #374151;
 }
 
 .room-controls button:disabled {
@@ -209,6 +223,11 @@
   border-color: #111827;
 }
 
+.canvas-area {
+  position: relative;
+  width: 100%;
+}
+
 .canvas-wrapper {
   width: 100%;
   overflow: hidden;
@@ -229,6 +248,31 @@
   touch-action: none;
   user-select: none;
   cursor: crosshair;
+}
+
+.remote-cursor {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  transform: translate(-2px, -2px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cursor-pointer {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.cursor-name {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 @media (max-width: 700px) {
@@ -252,10 +296,12 @@
 
   .room-controls {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .room-controls input {
     flex: 1;
+    min-width: 120px;
     width: auto;
   }
 

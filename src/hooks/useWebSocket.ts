@@ -18,17 +18,37 @@ export interface DrawingMessage {
   isEraser?: boolean;
 }
 
+export interface CursorMessage {
+  type: "cursor";
+  userId: string;
+  userName: string;
+  x: number;
+  y: number;
+}
+
+export interface UserMessage {
+  type: "user-joined" | "user-left";
+  userId: string;
+  userName: string;
+}
+
 interface ServerMessage {
   type:
     | "connection"
     | "room-joined"
     | "draw"
     | "clear"
-    | "presence";
+    | "presence"
+    | "cursor"
+    | "user-joined"
+    | "user-left";
 
   message?: string;
   roomId?: string;
   count?: number;
+
+  userId?: string;
+  userName?: string;
 
   x?: number;
   y?: number;
@@ -45,6 +65,12 @@ export function useWebSocket(
   ) => void,
   onPresenceChange?: (
     count: number
+  ) => void,
+  onCursorChange?: (
+    message: CursorMessage
+  ) => void,
+  onUserChange?: (
+    message: UserMessage
   ) => void
 ) {
   const socketRef =
@@ -55,6 +81,12 @@ export function useWebSocket(
 
   const onPresenceChangeRef =
     useRef(onPresenceChange);
+
+  const onCursorChangeRef =
+    useRef(onCursorChange);
+
+  const onUserChangeRef =
+    useRef(onUserChange);
 
   const [isConnected, setIsConnected] =
     useState(false);
@@ -67,6 +99,16 @@ export function useWebSocket(
     onPresenceChangeRef.current =
       onPresenceChange;
   }, [onPresenceChange]);
+
+  useEffect(() => {
+    onCursorChangeRef.current =
+      onCursorChange;
+  }, [onCursorChange]);
+
+  useEffect(() => {
+    onUserChangeRef.current =
+      onUserChange;
+  }, [onUserChange]);
 
   useEffect(() => {
     const socket =
@@ -128,13 +170,56 @@ export function useWebSocket(
           typeof message.count ===
             "number"
         ) {
-          console.log(
-            `Users online: ${message.count}`
-          );
-
           onPresenceChangeRef.current?.(
             message.count
           );
+
+          return;
+        }
+
+        if (
+          message.type === "cursor" &&
+          typeof message.userId ===
+            "string" &&
+          typeof message.userName ===
+            "string" &&
+          typeof message.x ===
+            "number" &&
+          typeof message.y ===
+            "number"
+        ) {
+          onCursorChangeRef.current?.({
+            type: "cursor",
+            userId:
+              message.userId,
+            userName:
+              message.userName,
+            x: message.x,
+            y: message.y,
+          });
+
+          return;
+        }
+
+        if (
+          (
+            message.type ===
+              "user-joined" ||
+            message.type ===
+              "user-left"
+          ) &&
+          typeof message.userId ===
+            "string" &&
+          typeof message.userName ===
+            "string"
+        ) {
+          onUserChangeRef.current?.({
+            type: message.type,
+            userId:
+              message.userId,
+            userName:
+              message.userName,
+          });
 
           return;
         }
@@ -196,7 +281,10 @@ export function useWebSocket(
   );
 
   const joinRoom = useCallback(
-    (roomId: string) => {
+    (
+      roomId: string,
+      userName: string
+    ) => {
       const socket =
         socketRef.current;
 
@@ -209,6 +297,7 @@ export function useWebSocket(
           JSON.stringify({
             type: "join-room",
             roomId,
+            userName,
           })
         );
 
@@ -220,9 +309,35 @@ export function useWebSocket(
     []
   );
 
+  const sendCursor = useCallback(
+    (
+      x: number,
+      y: number
+    ) => {
+      const socket =
+        socketRef.current;
+
+      if (
+        socket &&
+        socket.readyState ===
+          WebSocket.OPEN
+      ) {
+        socket.send(
+          JSON.stringify({
+            type: "cursor",
+            x,
+            y,
+          })
+        );
+      }
+    },
+    []
+  );
+
   return {
     isConnected,
     sendMessage,
     joinRoom,
+    sendCursor,
   };
 }

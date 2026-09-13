@@ -15,8 +15,17 @@ import {
 } from "./hooks/useWebSocket";
 
 import type {
+  CursorMessage,
   DrawingMessage,
+  UserMessage,
 } from "./hooks/useWebSocket";
+
+interface Cursor {
+  userId: string;
+  userName: string;
+  x: number;
+  y: number;
+}
 
 function App() {
   const [color, setColor] =
@@ -34,6 +43,12 @@ function App() {
   const [roomInput, setRoomInput] =
     useState("");
 
+  const [userName, setUserName] =
+    useState("");
+
+  const [nameInput, setNameInput] =
+    useState("");
+
   const [onlineUsers, setOnlineUsers] =
     useState(0);
 
@@ -41,6 +56,9 @@ function App() {
     useState<DrawingMessage | null>(
       null
     );
+
+  const [cursors, setCursors] =
+    useState<Cursor[]>([]);
 
   const canvasRef =
     useRef<CanvasHandle | null>(
@@ -60,13 +78,78 @@ function App() {
       setOnlineUsers(count);
     }, []);
 
+  const handleCursorChange =
+    useCallback(
+      (message: CursorMessage) => {
+        setCursors((current) => {
+          const existing =
+            current.find(
+              (cursor) =>
+                cursor.userId ===
+                message.userId
+            );
+
+          if (existing) {
+            return current.map(
+              (cursor) =>
+                cursor.userId ===
+                message.userId
+                  ? {
+                      ...cursor,
+                      x: message.x,
+                      y: message.y,
+                      userName:
+                        message.userName,
+                    }
+                  : cursor
+            );
+          }
+
+          return [
+            ...current,
+            {
+              userId:
+                message.userId,
+              userName:
+                message.userName,
+              x: message.x,
+              y: message.y,
+            },
+          ];
+        });
+      },
+      []
+    );
+
+  const handleUserChange =
+    useCallback(
+      (message: UserMessage) => {
+        if (
+          message.type ===
+          "user-left"
+        ) {
+          setCursors((current) =>
+            current.filter(
+              (cursor) =>
+                cursor.userId !==
+                message.userId
+            )
+          );
+        }
+      },
+      []
+    );
+
   const {
     isConnected,
     sendMessage,
     joinRoom,
+    sendCursor,
   } = useWebSocket(
     handleRemoteMessage,
-    handlePresenceChange
+    handlePresenceChange,
+    handleCursorChange,
+    handleUserChange
   );
 
   const handleUndo =
@@ -103,20 +186,70 @@ function App() {
     const trimmedRoom =
       roomInput.trim();
 
-    if (!trimmedRoom) {
+    const trimmedName =
+      nameInput.trim();
+
+    if (
+      !trimmedRoom ||
+      !trimmedName
+    ) {
       return;
     }
 
-    joinRoom(trimmedRoom);
+    joinRoom(
+      trimmedRoom,
+      trimmedName
+    );
 
     setRoomId(trimmedRoom);
+    setUserName(trimmedName);
 
     setOnlineUsers(1);
+
+    setCursors([]);
 
     canvasRef.current?.clear();
 
     setRemoteMessage(null);
   };
+
+  const handleCanvasPointerMove =
+    useCallback(
+      (
+        event: React.PointerEvent<HTMLDivElement>
+      ) => {
+        if (!roomId) {
+          return;
+        }
+
+        const canvas =
+          event.currentTarget.querySelector(
+            ".drawing-canvas"
+          ) as HTMLCanvasElement | null;
+
+        if (!canvas) {
+          return;
+        }
+
+        const rect =
+          canvas.getBoundingClientRect();
+
+        const x =
+          ((event.clientX -
+            rect.left) /
+            rect.width) *
+          canvas.width;
+
+        const y =
+          ((event.clientY -
+            rect.top) /
+            rect.height) *
+          canvas.height;
+
+        sendCursor(x, y);
+      },
+      [roomId, sendCursor]
+    );
 
   useEffect(() => {
     const handleKeyDown = (
@@ -213,17 +346,34 @@ function App() {
           </span>
 
           {roomId && (
-            <span className="room-users">
-              👥 {onlineUsers}{" "}
-              {onlineUsers === 1
-                ? "user"
-                : "users"}{" "}
-              online
-            </span>
+            <>
+              <span className="room-users">
+                👥 {onlineUsers}{" "}
+                {onlineUsers === 1
+                  ? "user"
+                  : "users"}{" "}
+                online
+              </span>
+
+              <span className="room-user-name">
+                👤 {userName}
+              </span>
+            </>
           )}
         </div>
 
         <div className="room-controls">
+          <input
+            type="text"
+            value={nameInput}
+            onChange={(event) =>
+              setNameInput(
+                event.target.value
+              )
+            }
+            placeholder="Your name"
+          />
+
           <input
             type="text"
             value={roomInput}
@@ -232,7 +382,7 @@ function App() {
                 event.target.value
               )
             }
-            placeholder="Enter room name"
+            placeholder="Room name"
           />
 
           <button
@@ -240,6 +390,7 @@ function App() {
             onClick={handleJoinRoom}
             disabled={
               !isConnected ||
+              !nameInput.trim() ||
               !roomInput.trim()
             }
           >
@@ -264,19 +415,45 @@ function App() {
         onClear={handleClear}
       />
 
-      <Canvas
-        ref={canvasRef}
-        color={color}
-        brushSize={brushSize}
-        isEraser={isEraser}
-        onCanvasReady={
-          handleCanvasReady
+      <div
+        className="canvas-area"
+        onPointerMove={
+          handleCanvasPointerMove
         }
-        remoteMessage={
-          remoteMessage
-        }
-        onDraw={sendMessage}
-      />
+      >
+        <Canvas
+          ref={canvasRef}
+          color={color}
+          brushSize={brushSize}
+          isEraser={isEraser}
+          onCanvasReady={
+            handleCanvasReady
+          }
+          remoteMessage={
+            remoteMessage
+          }
+          onDraw={sendMessage}
+        />
+
+        {cursors.map((cursor) => (
+          <div
+            key={cursor.userId}
+            className="remote-cursor"
+            style={{
+              left: `${cursor.x / 10}%`,
+              top: `${cursor.y / 6}%`,
+            }}
+          >
+            <span className="cursor-pointer">
+              ↖
+            </span>
+
+            <span className="cursor-name">
+              {cursor.userName}
+            </span>
+          </div>
+        ))}
+      </div>
     </main>
   );
 }
