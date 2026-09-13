@@ -32,6 +32,11 @@ export interface UserMessage {
   userName: string;
 }
 
+export interface RoomUser {
+  userId: string;
+  userName: string;
+}
+
 interface ServerMessage {
   type:
     | "connection"
@@ -41,7 +46,8 @@ interface ServerMessage {
     | "presence"
     | "cursor"
     | "user-joined"
-    | "user-left";
+    | "user-left"
+    | "user-list";
 
   message?: string;
   roomId?: string;
@@ -57,36 +63,39 @@ interface ServerMessage {
   color?: string;
   brushSize?: number;
   isEraser?: boolean;
+
+  users?: RoomUser[];
 }
 
 export function useWebSocket(
-  onMessage?: (
-    message: DrawingMessage
-  ) => void,
-  onPresenceChange?: (
-    count: number
-  ) => void,
-  onCursorChange?: (
-    message: CursorMessage
-  ) => void,
-  onUserChange?: (
-    message: UserMessage
-  ) => void
+  onMessage?: (message: DrawingMessage) => void,
+  onPresenceChange?: (count: number) => void,
+  onCursorChange?: (message: CursorMessage) => void,
+  onUserChange?: (message: UserMessage) => void,
+  onUserListChange?: (users: RoomUser[]) => void
 ) {
-  const socketRef =
-    useRef<WebSocket | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
 
-  const onMessageRef =
-    useRef(onMessage);
+  const reconnectTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const shouldReconnectRef = useRef(true);
+
+  const currentRoomRef =
+    useRef<string | null>(null);
+
+  const currentUserNameRef =
+    useRef("Anonymous");
+
+  const onMessageRef = useRef(onMessage);
   const onPresenceChangeRef =
     useRef(onPresenceChange);
-
   const onCursorChangeRef =
     useRef(onCursorChange);
-
   const onUserChangeRef =
     useRef(onUserChange);
+  const onUserListChangeRef =
+    useRef(onUserListChange);
 
   const [isConnected, setIsConnected] =
     useState(false);
@@ -111,6 +120,34 @@ export function useWebSocket(
   }, [onUserChange]);
 
   useEffect(() => {
+    onUserListChangeRef.current =
+      onUserListChange;
+  }, [onUserListChange]);
+
+  const connect = useCallback(() => {
+    if (!shouldReconnectRef.current) {
+      return;
+    }
+
+    const existingSocket =
+      socketRef.current;
+
+    if (
+      existingSocket &&
+      (
+        existingSocket.readyState ===
+          WebSocket.OPEN ||
+        existingSocket.readyState ===
+          WebSocket.CONNECTING
+      )
+    ) {
+      return;
+    }
+
+    console.log(
+      "Connecting to WebSocket server..."
+    );
+
     const socket =
       new WebSocket(WS_URL);
 
@@ -122,6 +159,26 @@ export function useWebSocket(
       );
 
       setIsConnected(true);
+
+      const room =
+        currentRoomRef.current;
+
+      const userName =
+        currentUserNameRef.current;
+
+      if (room) {
+        socket.send(
+          JSON.stringify({
+            type: "join-room",
+            roomId: room,
+            userName,
+          })
+        );
+
+        console.log(
+          `Rejoined room: ${room}`
+        );
+      }
     };
 
     socket.onmessage = (event) => {
@@ -129,14 +186,7 @@ export function useWebSocket(
         const message: ServerMessage =
           JSON.parse(event.data);
 
-        console.log(
-          "Received:",
-          message
-        );
-
-        if (
-          message.type === "draw"
-        ) {
+        if (message.type === "draw") {
           onMessageRef.current?.({
             type: "draw",
             x: message.x,
@@ -155,9 +205,7 @@ export function useWebSocket(
           return;
         }
 
-        if (
-          message.type === "clear"
-        ) {
+        if (message.type === "clear") {
           onMessageRef.current?.({
             type: "clear",
           });
@@ -167,11 +215,26 @@ export function useWebSocket(
 
         if (
           message.type === "presence" &&
-          typeof message.count ===
-            "number"
+          typeof message.count === "number"
         ) {
           onPresenceChangeRef.current?.(
             message.count
+          );
+
+          return;
+        }
+
+        if (
+          message.type === "user-list" &&
+          Array.isArray(message.users)
+        ) {
+          console.log(
+            "Received user list:",
+            message.users
+          );
+
+          onUserListChangeRef.current?.(
+            message.users
           );
 
           return;
@@ -183,10 +246,8 @@ export function useWebSocket(
             "string" &&
           typeof message.userName ===
             "string" &&
-          typeof message.x ===
-            "number" &&
-          typeof message.y ===
-            "number"
+          typeof message.x === "number" &&
+          typeof message.y === "number"
         ) {
           onCursorChangeRef.current?.({
             type: "cursor",
@@ -225,8 +286,7 @@ export function useWebSocket(
         }
 
         if (
-          message.type ===
-          "room-joined"
+          message.type === "room-joined"
         ) {
           console.log(
             `Joined room: ${message.roomId}`
@@ -255,12 +315,41 @@ export function useWebSocket(
       );
 
       setIsConnected(false);
-    };
 
-    return () => {
-      socket.close();
+      socketRef.current = null;
+
+      if (
+        shouldReconnectRef.current
+      ) {
+        reconnectTimerRef.current =
+          setTimeout(() => {
+            connect();
+          }, 2000);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    shouldReconnectRef.current = true;
+
+    connect();
+
+    return () => {
+      shouldReconnectRef.current = false;
+
+      if (
+        reconnectTimerRef.current
+      ) {
+        clearTimeout(
+          reconnectTimerRef.current
+        );
+      }
+
+      socketRef.current?.close();
+
+      socketRef.current = null;
+    };
+  }, [connect]);
 
   const sendMessage = useCallback(
     (message: DrawingMessage) => {
@@ -285,6 +374,12 @@ export function useWebSocket(
       roomId: string,
       userName: string
     ) => {
+      currentRoomRef.current =
+        roomId;
+
+      currentUserNameRef.current =
+        userName;
+
       const socket =
         socketRef.current;
 
@@ -310,10 +405,7 @@ export function useWebSocket(
   );
 
   const sendCursor = useCallback(
-    (
-      x: number,
-      y: number
-    ) => {
+    (x: number, y: number) => {
       const socket =
         socketRef.current;
 
