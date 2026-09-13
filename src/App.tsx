@@ -2,16 +2,32 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "./components/Canvas";
 import type { CanvasHandle } from "./components/Canvas";
 import Toolbar from "./components/Toolbar";
-import { useWebSocket } from "./hooks/useWebSocket";
+import {
+  useWebSocket,
+} from "./hooks/useWebSocket";
+import type {
+  DrawingMessage,
+} from "./hooks/useWebSocket";
 
 function App() {
   const [color, setColor] = useState("#000000");
   const [brushSize, setBrushSize] = useState(5);
   const [isEraser, setIsEraser] = useState(false);
 
+  const [remoteMessage, setRemoteMessage] =
+    useState<DrawingMessage | null>(null);
+
   const canvasRef = useRef<CanvasHandle | null>(null);
 
-  const { isConnected, sendMessage } = useWebSocket();
+  const handleRemoteMessage = useCallback(
+    (message: DrawingMessage) => {
+      setRemoteMessage(message);
+    },
+    []
+  );
+
+  const { isConnected, sendMessage } =
+    useWebSocket(handleRemoteMessage);
 
   const handleUndo = useCallback(() => {
     canvasRef.current?.undo();
@@ -108,11 +124,8 @@ function App() {
         brushSize={brushSize}
         isEraser={isEraser}
         onCanvasReady={handleCanvasReady}
-        onDraw={() => {
-          sendMessage({
-            type: "draw",
-          });
-        }}
+        remoteMessage={remoteMessage}
+        onDraw={sendMessage}
       />
     </main>
   );

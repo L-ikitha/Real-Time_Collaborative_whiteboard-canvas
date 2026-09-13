@@ -5,6 +5,7 @@ import {
   useRef,
 } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import type { DrawingMessage } from "../hooks/useWebSocket";
 
 export interface CanvasHandle {
   undo: () => void;
@@ -16,11 +17,12 @@ interface CanvasProps {
   color: string;
   brushSize: number;
   isEraser: boolean;
-  onDraw?: () => void;
+  onDraw?: (message: DrawingMessage) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  remoteMessage?: DrawingMessage | null;
 }
 
-export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
+const Canvas = forwardRef<CanvasHandle, CanvasProps>(
   (
     {
       color,
@@ -28,11 +30,14 @@ export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
       isEraser,
       onDraw,
       onCanvasReady,
+      remoteMessage,
     },
     ref
   ) => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const isDrawingRef = useRef(false);
+
+    const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
     const historyRef = useRef<ImageData[]>([]);
     const redoStackRef = useRef<ImageData[]>([]);
@@ -83,6 +88,76 @@ export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
       redoStackRef.current = [];
     };
 
+    const drawLine = (
+      x: number,
+      y: number,
+      previousX: number,
+      previousY: number,
+      strokeColor: string,
+      size: number,
+      eraser: boolean
+    ) => {
+      const canvas = canvasRef.current;
+
+      if (!canvas) return;
+
+      const context = canvas.getContext("2d");
+
+      if (!context) return;
+
+      context.lineWidth = size;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.strokeStyle = eraser ? "#ffffff" : strokeColor;
+
+      context.beginPath();
+      context.moveTo(previousX, previousY);
+      context.lineTo(x, y);
+      context.stroke();
+    };
+
+    useEffect(() => {
+      if (!remoteMessage) return;
+
+      if (
+        remoteMessage.type === "draw" &&
+        remoteMessage.x !== undefined &&
+        remoteMessage.y !== undefined &&
+        remoteMessage.previousX !== undefined &&
+        remoteMessage.previousY !== undefined &&
+        remoteMessage.color !== undefined &&
+        remoteMessage.brushSize !== undefined &&
+        remoteMessage.isEraser !== undefined
+      ) {
+        drawLine(
+          remoteMessage.x,
+          remoteMessage.y,
+          remoteMessage.previousX,
+          remoteMessage.previousY,
+          remoteMessage.color,
+          remoteMessage.brushSize,
+          remoteMessage.isEraser
+        );
+      }
+
+      if (remoteMessage.type === "clear") {
+        const canvas = canvasRef.current;
+
+        if (!canvas) return;
+
+        const context = canvas.getContext("2d");
+
+        if (!context) return;
+
+        context.clearRect(
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+      }
+    }, [remoteMessage]);
+
     const startDrawing = (
       event: ReactPointerEvent<HTMLCanvasElement>
     ) => {
@@ -98,12 +173,7 @@ export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
 
       const { x, y } = getCoordinates(event);
 
-      const context = canvas.getContext("2d");
-
-      if (!context) return;
-
-      context.beginPath();
-      context.moveTo(x, y);
+      lastPointRef.current = { x, y };
     };
 
     const draw = (
@@ -115,21 +185,37 @@ export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
 
       if (!canvas) return;
 
-      const context = canvas.getContext("2d");
+      const currentPoint = getCoordinates(event);
 
-      if (!context) return;
+      const previousPoint = lastPointRef.current;
 
-      const { x, y } = getCoordinates(event);
+      if (!previousPoint) {
+        lastPointRef.current = currentPoint;
+        return;
+      }
 
-      context.lineWidth = brushSize;
-      context.lineCap = "round";
-      context.lineJoin = "round";
-      context.strokeStyle = isEraser ? "#ffffff" : color;
+      drawLine(
+        currentPoint.x,
+        currentPoint.y,
+        previousPoint.x,
+        previousPoint.y,
+        color,
+        brushSize,
+        isEraser
+      );
 
-      context.lineTo(x, y);
-      context.stroke();
+      onDraw?.({
+        type: "draw",
+        x: currentPoint.x,
+        y: currentPoint.y,
+        previousX: previousPoint.x,
+        previousY: previousPoint.y,
+        color,
+        brushSize,
+        isEraser,
+      });
 
-      onDraw?.();
+      lastPointRef.current = currentPoint;
     };
 
     const stopDrawing = (
@@ -144,6 +230,7 @@ export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
       }
 
       isDrawingRef.current = false;
+      lastPointRef.current = null;
     };
 
     const undo = () => {
@@ -244,3 +331,5 @@ export const Canvas = forwardRef<CanvasHandle, CanvasProps>(
 );
 
 Canvas.displayName = "Canvas";
+
+export { Canvas };
