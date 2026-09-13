@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+
 import {
   WebSocketServer,
   WebSocket,
@@ -36,7 +37,10 @@ function joinRoom(
     rooms.set(roomId, room);
   }
 
-  room.set(client.socket, client);
+  room.set(
+    client.socket,
+    client
+  );
 }
 
 function leaveRoom(
@@ -58,6 +62,28 @@ function leaveRoom(
   if (room.size === 0) {
     rooms.delete(roomId);
   }
+}
+
+function broadcastToRoom(
+  roomId: string,
+  sender: WebSocket,
+  message: string
+) {
+  const room = getRoom(roomId);
+
+  if (!room) {
+    return;
+  }
+
+  room.forEach((client) => {
+    if (
+      client.socket !== sender &&
+      client.socket.readyState ===
+        WebSocket.OPEN
+    ) {
+      client.socket.send(message);
+    }
+  });
 }
 
 function sendUserList(
@@ -101,10 +127,11 @@ function broadcastUserList(
     userName: client.userName,
   }));
 
-  const message = JSON.stringify({
-    type: "user-list",
-    users,
-  });
+  const message =
+    JSON.stringify({
+      type: "user-list",
+      users,
+    });
 
   room.forEach((client) => {
     if (
@@ -125,10 +152,11 @@ function broadcastPresence(
     return;
   }
 
-  const message = JSON.stringify({
-    type: "presence",
-    count: room.size,
-  });
+  const message =
+    JSON.stringify({
+      type: "presence",
+      count: room.size,
+    });
 
   room.forEach((client) => {
     if (
@@ -155,33 +183,12 @@ function broadcastUserEvent(
     return;
   }
 
-  const message = JSON.stringify({
-    type,
-    userId,
-    userName,
-  });
-
-  room.forEach((client) => {
-    if (
-      client.socket !== sender &&
-      client.socket.readyState ===
-        WebSocket.OPEN
-    ) {
-      client.socket.send(message);
-    }
-  });
-}
-
-function broadcastToRoom(
-  roomId: string,
-  sender: WebSocket,
-  message: string
-) {
-  const room = getRoom(roomId);
-
-  if (!room) {
-    return;
-  }
+  const message =
+    JSON.stringify({
+      type,
+      userId,
+      userName,
+    });
 
   room.forEach((client) => {
     if (
@@ -378,6 +385,25 @@ server.on(
                 userName,
                 x: data.x,
                 y: data.y,
+              })
+            );
+
+            return;
+          }
+
+          if (
+            data.type ===
+              "undo" ||
+            data.type ===
+              "redo"
+          ) {
+            broadcastToRoom(
+              currentRoom,
+              socket,
+              JSON.stringify({
+                type: data.type,
+                userId,
+                userName,
               })
             );
 

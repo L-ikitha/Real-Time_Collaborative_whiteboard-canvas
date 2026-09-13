@@ -82,26 +82,10 @@ function App() {
       setOnlineUsers(count);
     }, []);
 
-  /*
-   * Server sends the complete user list.
-   * Replace the frontend list with the
-   * authoritative server list.
-   */
   const handleUserListChange =
     useCallback(
       (userList: RoomUser[]) => {
-        console.log(
-          "USER LIST RECEIVED:",
-          userList
-        );
-
-        setUsers(
-          userList.map((user) => ({
-            userId: user.userId,
-            userName: user.userName,
-          }))
-        );
-
+        setUsers(userList);
         setOnlineUsers(
           userList.length
         );
@@ -109,36 +93,26 @@ function App() {
       []
     );
 
-  /*
-   * Also maintain the list using
-   * individual join/leave events.
-   */
   const handleUserChange =
     useCallback(
       (message: UserMessage) => {
-        console.log(
-          "USER EVENT:",
-          message
-        );
-
         if (
           message.type ===
           "user-joined"
         ) {
-          setUsers((currentUsers) => {
-            const alreadyExists =
-              currentUsers.some(
+          setUsers((current) => {
+            if (
+              current.some(
                 (user) =>
                   user.userId ===
                   message.userId
-              );
-
-            if (alreadyExists) {
-              return currentUsers;
+              )
+            ) {
+              return current;
             }
 
             return [
-              ...currentUsers,
+              ...current,
               {
                 userId:
                   message.userId,
@@ -147,16 +121,14 @@ function App() {
               },
             ];
           });
-
-          return;
         }
 
         if (
           message.type ===
           "user-left"
         ) {
-          setUsers((currentUsers) =>
-            currentUsers.filter(
+          setUsers((current) =>
+            current.filter(
               (user) =>
                 user.userId !==
                 message.userId
@@ -234,12 +206,20 @@ function App() {
   const handleUndo =
     useCallback(() => {
       canvasRef.current?.undo();
-    }, []);
+
+      sendMessage({
+        type: "undo",
+      });
+    }, [sendMessage]);
 
   const handleRedo =
     useCallback(() => {
       canvasRef.current?.redo();
-    }, []);
+
+      sendMessage({
+        type: "redo",
+      });
+    }, [sendMessage]);
 
   const handleClear =
     useCallback(() => {
@@ -273,11 +253,6 @@ function App() {
     setRoomId(trimmedRoom);
     setUserName(trimmedName);
 
-    /*
-     * Show the current user immediately.
-     * The server will replace this with
-     * the authoritative list shortly.
-     */
     setUsers([
       {
         userId: "current-user",
@@ -349,6 +324,8 @@ function App() {
         } else {
           handleUndo();
         }
+
+        return;
       }
 
       if (
@@ -360,6 +337,8 @@ function App() {
         event.preventDefault();
 
         handleRedo();
+
+        return;
       }
 
       if (
@@ -387,6 +366,45 @@ function App() {
     handleRedo,
     handleUndo,
   ]);
+
+  /*
+   * Apply remote undo/redo.
+   *
+   * The local operation is already
+   * performed by the sender, so the
+   * receiving browser only performs it.
+   */
+  useEffect(() => {
+    if (!remoteMessage) {
+      return;
+    }
+
+    if (
+      remoteMessage.type ===
+      "undo"
+    ) {
+      canvasRef.current?.undo();
+      setRemoteMessage(null);
+      return;
+    }
+
+    if (
+      remoteMessage.type ===
+      "redo"
+    ) {
+      canvasRef.current?.redo();
+      setRemoteMessage(null);
+      return;
+    }
+
+    if (
+      remoteMessage.type ===
+      "clear"
+    ) {
+      canvasRef.current?.clear();
+      setRemoteMessage(null);
+    }
+  }, [remoteMessage]);
 
   return (
     <main className="app">
@@ -480,7 +498,6 @@ function App() {
         </div>
       </div>
 
-      {/* ALWAYS SHOW USER LIST AFTER JOINING */}
       {roomId && (
         <section className="user-list">
           <div className="user-list-header">
@@ -516,12 +533,6 @@ function App() {
                 )}
               </span>
             ))}
-
-            {users.length === 0 && (
-              <span className="empty-users">
-                Waiting for room members...
-              </span>
-            )}
           </div>
         </section>
       )}

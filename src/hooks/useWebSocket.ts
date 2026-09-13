@@ -10,7 +10,12 @@ const WS_URL =
   "ws://localhost:8080";
 
 export interface DrawingMessage {
-  type: "draw" | "clear";
+  type:
+    | "draw"
+    | "clear"
+    | "undo"
+    | "redo";
+
   x?: number;
   y?: number;
   previousX?: number;
@@ -29,7 +34,9 @@ export interface CursorMessage {
 }
 
 export interface UserMessage {
-  type: "user-joined" | "user-left";
+  type:
+    | "user-joined"
+    | "user-left";
   userId: string;
   userName: string;
 }
@@ -45,6 +52,8 @@ interface ServerMessage {
     | "room-joined"
     | "draw"
     | "clear"
+    | "undo"
+    | "redo"
     | "presence"
     | "cursor"
     | "user-joined"
@@ -208,7 +217,9 @@ export function useWebSocket(
         const message: ServerMessage =
           JSON.parse(event.data);
 
-        if (message.type === "draw") {
+        if (
+          message.type === "draw"
+        ) {
           onMessageRef.current?.({
             type: "draw",
             x: message.x,
@@ -217,7 +228,8 @@ export function useWebSocket(
               message.previousX,
             previousY:
               message.previousY,
-            color: message.color,
+            color:
+              message.color,
             brushSize:
               message.brushSize,
             isEraser:
@@ -227,7 +239,9 @@ export function useWebSocket(
           return;
         }
 
-        if (message.type === "clear") {
+        if (
+          message.type === "clear"
+        ) {
           onMessageRef.current?.({
             type: "clear",
           });
@@ -236,7 +250,28 @@ export function useWebSocket(
         }
 
         if (
-          message.type === "presence" &&
+          message.type === "undo"
+        ) {
+          onMessageRef.current?.({
+            type: "undo",
+          });
+
+          return;
+        }
+
+        if (
+          message.type === "redo"
+        ) {
+          onMessageRef.current?.({
+            type: "redo",
+          });
+
+          return;
+        }
+
+        if (
+          message.type ===
+            "presence" &&
           typeof message.count ===
             "number"
         ) {
@@ -248,14 +283,12 @@ export function useWebSocket(
         }
 
         if (
-          message.type === "user-list" &&
-          Array.isArray(message.users)
-        ) {
-          console.log(
-            "USER LIST RECEIVED:",
+          message.type ===
+            "user-list" &&
+          Array.isArray(
             message.users
-          );
-
+          )
+        ) {
           onUserListChangeRef.current?.(
             message.users
           );
@@ -264,7 +297,8 @@ export function useWebSocket(
         }
 
         if (
-          message.type === "cursor" &&
+          message.type ===
+            "cursor" &&
           typeof message.userId ===
             "string" &&
           typeof message.userName ===
@@ -317,8 +351,6 @@ export function useWebSocket(
           console.log(
             `Joined room: ${message.roomId}`
           );
-
-          return;
         }
       } catch (error) {
         console.error(
@@ -356,12 +388,14 @@ export function useWebSocket(
   }, []);
 
   useEffect(() => {
-    shouldReconnectRef.current = true;
+    shouldReconnectRef.current =
+      true;
 
     connect();
 
     return () => {
-      shouldReconnectRef.current = false;
+      shouldReconnectRef.current =
+        false;
 
       if (
         reconnectTimerRef.current
