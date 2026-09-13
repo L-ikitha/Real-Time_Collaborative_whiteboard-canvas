@@ -5,7 +5,9 @@ import {
   useState,
 } from "react";
 
-const WS_URL = "ws://localhost:8080";
+const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  "ws://localhost:8080";
 
 export interface DrawingMessage {
   type: "draw" | "clear";
@@ -68,18 +70,32 @@ interface ServerMessage {
 }
 
 export function useWebSocket(
-  onMessage?: (message: DrawingMessage) => void,
-  onPresenceChange?: (count: number) => void,
-  onCursorChange?: (message: CursorMessage) => void,
-  onUserChange?: (message: UserMessage) => void,
-  onUserListChange?: (users: RoomUser[]) => void
+  onMessage?: (
+    message: DrawingMessage
+  ) => void,
+  onPresenceChange?: (
+    count: number
+  ) => void,
+  onCursorChange?: (
+    message: CursorMessage
+  ) => void,
+  onUserChange?: (
+    message: UserMessage
+  ) => void,
+  onUserListChange?: (
+    users: RoomUser[]
+  ) => void
 ) {
-  const socketRef = useRef<WebSocket | null>(null);
+  const socketRef =
+    useRef<WebSocket | null>(null);
 
   const reconnectTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
+    useRef<
+      ReturnType<typeof setTimeout> | null
+    >(null);
 
-  const shouldReconnectRef = useRef(true);
+  const shouldReconnectRef =
+    useRef(true);
 
   const currentRoomRef =
     useRef<string | null>(null);
@@ -87,13 +103,18 @@ export function useWebSocket(
   const currentUserNameRef =
     useRef("Anonymous");
 
-  const onMessageRef = useRef(onMessage);
+  const onMessageRef =
+    useRef(onMessage);
+
   const onPresenceChangeRef =
     useRef(onPresenceChange);
+
   const onCursorChangeRef =
     useRef(onCursorChange);
+
   const onUserChangeRef =
     useRef(onUserChange);
+
   const onUserListChangeRef =
     useRef(onUserListChange);
 
@@ -145,7 +166,8 @@ export function useWebSocket(
     }
 
     console.log(
-      "Connecting to WebSocket server..."
+      "Connecting to WebSocket server:",
+      WS_URL
     );
 
     const socket =
@@ -215,7 +237,8 @@ export function useWebSocket(
 
         if (
           message.type === "presence" &&
-          typeof message.count === "number"
+          typeof message.count ===
+            "number"
         ) {
           onPresenceChangeRef.current?.(
             message.count
@@ -229,7 +252,7 @@ export function useWebSocket(
           Array.isArray(message.users)
         ) {
           console.log(
-            "Received user list:",
+            "USER LIST RECEIVED:",
             message.users
           );
 
@@ -246,8 +269,10 @@ export function useWebSocket(
             "string" &&
           typeof message.userName ===
             "string" &&
-          typeof message.x === "number" &&
-          typeof message.y === "number"
+          typeof message.x ===
+            "number" &&
+          typeof message.y ===
+            "number"
         ) {
           onCursorChangeRef.current?.({
             type: "cursor",
@@ -286,7 +311,8 @@ export function useWebSocket(
         }
 
         if (
-          message.type === "room-joined"
+          message.type ===
+          "room-joined"
         ) {
           console.log(
             `Joined room: ${message.roomId}`
@@ -405,7 +431,10 @@ export function useWebSocket(
   );
 
   const sendCursor = useCallback(
-    (x: number, y: number) => {
+    (
+      x: number,
+      y: number
+    ) => {
       const socket =
         socketRef.current;
 
