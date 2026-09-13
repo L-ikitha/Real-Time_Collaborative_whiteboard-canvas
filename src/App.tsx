@@ -18,7 +18,10 @@ import type {
   CursorMessage,
   DrawingMessage,
   UserMessage,
+  RoomUser,
 } from "./hooks/useWebSocket";
+
+import type { PointerEvent } from "react";
 
 interface Cursor {
   userId: string;
@@ -52,6 +55,9 @@ function App() {
   const [onlineUsers, setOnlineUsers] =
     useState(0);
 
+  const [users, setUsers] =
+    useState<RoomUser[]>([]);
+
   const [remoteMessage, setRemoteMessage] =
     useState<DrawingMessage | null>(
       null
@@ -61,9 +67,7 @@ function App() {
     useState<Cursor[]>([]);
 
   const canvasRef =
-    useRef<CanvasHandle | null>(
-      null
-    );
+    useRef<CanvasHandle | null>(null);
 
   const handleRemoteMessage =
     useCallback(
@@ -77,6 +81,99 @@ function App() {
     useCallback((count: number) => {
       setOnlineUsers(count);
     }, []);
+
+  /*
+   * Server sends the complete user list.
+   * Replace the frontend list with the
+   * authoritative server list.
+   */
+  const handleUserListChange =
+    useCallback(
+      (userList: RoomUser[]) => {
+        console.log(
+          "USER LIST RECEIVED:",
+          userList
+        );
+
+        setUsers(
+          userList.map((user) => ({
+            userId: user.userId,
+            userName: user.userName,
+          }))
+        );
+
+        setOnlineUsers(
+          userList.length
+        );
+      },
+      []
+    );
+
+  /*
+   * Also maintain the list using
+   * individual join/leave events.
+   */
+  const handleUserChange =
+    useCallback(
+      (message: UserMessage) => {
+        console.log(
+          "USER EVENT:",
+          message
+        );
+
+        if (
+          message.type ===
+          "user-joined"
+        ) {
+          setUsers((currentUsers) => {
+            const alreadyExists =
+              currentUsers.some(
+                (user) =>
+                  user.userId ===
+                  message.userId
+              );
+
+            if (alreadyExists) {
+              return currentUsers;
+            }
+
+            return [
+              ...currentUsers,
+              {
+                userId:
+                  message.userId,
+                userName:
+                  message.userName,
+              },
+            ];
+          });
+
+          return;
+        }
+
+        if (
+          message.type ===
+          "user-left"
+        ) {
+          setUsers((currentUsers) =>
+            currentUsers.filter(
+              (user) =>
+                user.userId !==
+                message.userId
+            )
+          );
+
+          setCursors((current) =>
+            current.filter(
+              (cursor) =>
+                cursor.userId !==
+                message.userId
+            )
+          );
+        }
+      },
+      []
+    );
 
   const handleCursorChange =
     useCallback(
@@ -121,25 +218,6 @@ function App() {
       []
     );
 
-  const handleUserChange =
-    useCallback(
-      (message: UserMessage) => {
-        if (
-          message.type ===
-          "user-left"
-        ) {
-          setCursors((current) =>
-            current.filter(
-              (cursor) =>
-                cursor.userId !==
-                message.userId
-            )
-          );
-        }
-      },
-      []
-    );
-
   const {
     isConnected,
     sendMessage,
@@ -149,7 +227,8 @@ function App() {
     handleRemoteMessage,
     handlePresenceChange,
     handleCursorChange,
-    handleUserChange
+    handleUserChange,
+    handleUserListChange
   );
 
   const handleUndo =
@@ -171,17 +250,6 @@ function App() {
       });
     }, [sendMessage]);
 
-  const handleCanvasReady =
-    useCallback(
-      (canvas: HTMLCanvasElement) => {
-        console.log(
-          "Canvas ready:",
-          canvas
-        );
-      },
-      []
-    );
-
   const handleJoinRoom = () => {
     const trimmedRoom =
       roomInput.trim();
@@ -191,7 +259,8 @@ function App() {
 
     if (
       !trimmedRoom ||
-      !trimmedName
+      !trimmedName ||
+      !isConnected
     ) {
       return;
     }
@@ -203,6 +272,18 @@ function App() {
 
     setRoomId(trimmedRoom);
     setUserName(trimmedName);
+
+    /*
+     * Show the current user immediately.
+     * The server will replace this with
+     * the authoritative list shortly.
+     */
+    setUsers([
+      {
+        userId: "current-user",
+        userName: trimmedName,
+      },
+    ]);
 
     setOnlineUsers(1);
 
@@ -216,7 +297,7 @@ function App() {
   const handleCanvasPointerMove =
     useCallback(
       (
-        event: React.PointerEvent<HTMLDivElement>
+        event: PointerEvent<HTMLDivElement>
       ) => {
         if (!roomId) {
           return;
@@ -346,19 +427,19 @@ function App() {
           </span>
 
           {roomId && (
-            <>
-              <span className="room-users">
-                👥 {onlineUsers}{" "}
-                {onlineUsers === 1
-                  ? "user"
-                  : "users"}{" "}
-                online
-              </span>
+            <span className="room-users">
+              👥 {onlineUsers}{" "}
+              {onlineUsers === 1
+                ? "user"
+                : "users"}{" "}
+              online
+            </span>
+          )}
 
-              <span className="room-user-name">
-                👤 {userName}
-              </span>
-            </>
+          {roomId && userName && (
+            <span className="room-user-name">
+              👤 {userName}
+            </span>
           )}
         </div>
 
@@ -399,6 +480,52 @@ function App() {
         </div>
       </div>
 
+      {/* ALWAYS SHOW USER LIST AFTER JOINING */}
+      {roomId && (
+        <section className="user-list">
+          <div className="user-list-header">
+            <span className="user-list-title">
+              People in this room
+            </span>
+
+            <span className="user-list-count">
+              {users.length}{" "}
+              {users.length === 1
+                ? "person"
+                : "people"}
+            </span>
+          </div>
+
+          <div className="user-list-items">
+            {users.map((user) => (
+              <span
+                key={user.userId}
+                className="user-chip"
+              >
+                <span className="user-chip-dot" />
+
+                <span>
+                  {user.userName}
+                </span>
+
+                {user.userName ===
+                  userName && (
+                  <span className="you-label">
+                    You
+                  </span>
+                )}
+              </span>
+            ))}
+
+            {users.length === 0 && (
+              <span className="empty-users">
+                Waiting for room members...
+              </span>
+            )}
+          </div>
+        </section>
+      )}
+
       <Toolbar
         color={color}
         brushSize={brushSize}
@@ -426,9 +553,6 @@ function App() {
           color={color}
           brushSize={brushSize}
           isEraser={isEraser}
-          onCanvasReady={
-            handleCanvasReady
-          }
           remoteMessage={
             remoteMessage
           }
